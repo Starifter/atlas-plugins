@@ -4,6 +4,7 @@ description: Deepgram speech-to-text - voice notes and recordings transcribed by
 version: "1.0.0"
 requires_ultron_sdk: ">=1.23,<2"
 categories: [audio]
+logo: logo.svg
 contracts:
   media_readers: [deepgram]
 config_schema:

@@ -4,6 +4,7 @@ description: The xAI model provider - Grok, at xAI - and Grok speech-to-text for
 version: "1.1.0"
 requires_ultron_sdk: ">=1.23,<2"
 categories: [provider, models, audio]
+logo: logo.svg
 contracts:
   providers: [xai]
   media_readers: [xai/stt]

@@ -4,6 +4,7 @@ description: The Groq model provider - open models, served fast - and Whisper fo
 version: "1.1.0"
 requires_ultron_sdk: ">=1.23,<2"
 categories: [provider, models, audio]
+logo: logo.svg
 contracts:
   providers: [groq]
   media_readers: [groq/whisper]

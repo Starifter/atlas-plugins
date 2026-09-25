@@ -4,6 +4,7 @@ description: The Together AI model provider - open models, hosted at Together.
 version: "1.0.0"
 requires_ultron_sdk: ">=1.23,<2"
 categories: [provider, models]
+logo: logo.svg
 contracts:
   providers: [together]
 providers:

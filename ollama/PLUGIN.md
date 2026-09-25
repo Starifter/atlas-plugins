@@ -4,6 +4,7 @@ description: Models through a local Ollama - no key, no bill - or Ollama's cloud
 version: "1.0.0"
 requires_ultron_sdk: ">=1.24,<2"
 categories: [provider, models, local]
+logo: logo.svg
 contracts:
   providers: [ollama, ollama-cloud]
   embedders: [ollama]
