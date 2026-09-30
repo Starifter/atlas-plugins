@@ -33,6 +33,7 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 | `deepgram` | A media reader: voice notes and recordings transcribed by Deepgram Nova (`DEEPGRAM_API_KEY`). |
 | `together` | A model provider for Together AI (`TOGETHER_API_KEY`): its hosted open models, priced from its listing. |
 | `fireworks` | A model provider for Fireworks AI (`FIREWORKS_API_KEY`): its hosted open models, reasoning carried through tool loops. Needs SDK 1.25. |
+| `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
 | `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 
 ## What "official" means
