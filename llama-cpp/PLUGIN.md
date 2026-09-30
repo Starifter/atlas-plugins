@@ -2,7 +2,7 @@
 name: llama-cpp
 description: A model provider for a llama.cpp server on this machine - GGUF models, no key, no bill.
 version: "1.1.0"
-requires_ultron_sdk: ">=1.24,<2"
+requires_atlas_sdk: ">=1.24,<2"
 categories: [provider, models, local]
 logo: logo.svg
 contracts:
@@ -87,11 +87,11 @@ on `PATH`, or `server_binary` names it), then name a model:
 
 `server_model` is a `.gguf` path, or `org/repo[:quant]` (or `hf:org/repo`) for the server's
 own `-hf` download into its own cache. The server is started on the first request - never at
-install, so `ultron --tools` leaves no model loaded - on loopback, on a credential-scrubbed
-environment, and stopped when the Ultron process that started it exits: the gateway's exit
+install, so `atlas --tools` leaves no model loaded - on loopback, on a credential-scrubbed
+environment, and stopped when the Atlas process that started it exits: the gateway's exit
 for a detached gateway, the REPL's for `--local`. Every lane in a gateway shares it. A server
 already answering on the port is used, not replaced. Its output goes to
-`<workspace>/.ultron/llama-cpp/llama-server-chat.log`, and an error that stops it comes back
+`<workspace>/.atlas/llama-cpp/llama-server-chat.log`, and an error that stops it comes back
 with the log's last lines. The plugin runs the program you installed; it does not fetch one.
 
 **Or point at a server you started.** `llama-server -m model.gguf` (with `--mmproj` for
@@ -110,7 +110,7 @@ it is missing.
 
 ## The catalog is live
 
-`/model list --refresh` (or `ultron models refresh llama-cpp`) asks `GET /v1/models` and
+`/model list --refresh` (or `atlas models refresh llama-cpp`) asks `GET /v1/models` and
 `GET /props`, and keeps what they say about each id: the context the server was **started
 with** (`-c`, split across `--parallel`), which is the window a request actually gets and
 is usually well under the model's own; whether a projector is loaded for pictures; and when
@@ -120,7 +120,7 @@ a model to answer.
 The same `/props` answer is asked before every request. From the first reply on, the
 session compacts against the context the server was started with, whatever it believed
 when it started. A request that would not fit is refused before it is sent, with how to
-start the server larger; Ultron compacts and tries once more first.
+start the server larger; Atlas compacts and tries once more first.
 
 The size checked is **exact**, not estimated: the request goes to `/apply-template`, which
 renders it through the same chat template, tool schemas and thinking switch a chat
@@ -151,14 +151,14 @@ has no room for them.
 ## Pictures
 
 A server with a projector takes images - `server_mmproj` on a managed server, `--mmproj` on
-yours - and `/props` says so; the listing records `image` and Ultron sends the picture.
-Without one, the catalog entry says `text` and Ultron describes the picture with
+yours - and `/props` says so; the listing records `image` and Atlas sends the picture.
+Without one, the catalog entry says `text` and Atlas describes the picture with
 `vision_model` instead, or says it could not.
 
 ## A key
 
 None, by default. A managed server is loopback-only and gets none. A server you started with
-`--api-key` wants one: put it in `~/.ultron/.env` as `LLAMA_SERVER_API_KEY` and it becomes a
+`--api-key` wants one: put it in `~/.atlas/.env` as `LLAMA_SERVER_API_KEY` and it becomes a
 `llama-cpp` auth profile like any provider's. `base_url` never carries a username or
 password - a URL with one in it is refused, because it would reach every error message.
 
@@ -183,7 +183,7 @@ know it. The core asks for the width from synchronous code before it ever embeds
 managed server that is not yet running is started on that first ask and answers a later one -
 so the first memory refresh of a fresh process runs on keyword, and the next embed pass has
 its vectors. `embedding_dimensions` overrides for a server that lists nothing; a wrong number
-is caught on the first embed and the message says the right one. `ultron memory status`
+is caught on the first embed and the message says the right one. `atlas memory status`
 reports what is missing.
 
 ## Settings

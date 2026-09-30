@@ -2,7 +2,7 @@
 name: xai
 description: The xAI model provider - Grok, at xAI - and Grok speech-to-text for voice notes.
 version: "1.1.0"
-requires_ultron_sdk: ">=1.23,<2"
+requires_atlas_sdk: ">=1.23,<2"
 categories: [provider, models, audio]
 logo: logo.svg
 contracts:
@@ -29,11 +29,11 @@ Grok, at [xAI](https://x.ai).
 
 ```
 /plugins install xai
-ultron auth add xai                   # a key from console.x.ai, or XAI_API_KEY in ~/.ultron/.env
+atlas auth add xai                   # a key from console.x.ai, or XAI_API_KEY in ~/.atlas/.env
 ```
 
 then `provider: xai` and a `model` in `config.json`, or `--provider xai --model
-grok-4.7`. **There is no default model**; `ultron models list xai` shows what xAI serves.
+grok-4.7`. **There is no default model**; `atlas models list xai` shows what xAI serves.
 
 ## The catalog is live
 
@@ -58,7 +58,7 @@ refuse some of it outright.
 The plugin also registers `xai/stt`, a media reader that transcribes a voice note or a
 recording with xAI's speech-to-text (`grok-voice-transcribe-2.0` unless
 `transcription_model` says otherwise). It uses the same key as the provider, so once
-`ultron auth add xai` is done a voice note is transcribed whether or not you chat through
+`atlas auth add xai` is done a voice note is transcribed whether or not you chat through
 Grok. Its priority is 45: after `groq/whisper` (40), before `openai/whisper` (50).
 `audio_reader: xai/stt` pins it. xAI does not take WebM audio, so a WebM voice note goes
 to the next reader.

@@ -1,7 +1,7 @@
-"""The Groq plugin, driven the way Ultron drives it: a fake `openai` client that
+"""The Groq plugin, driven the way Atlas drives it: a fake `openai` client that
 records each request and answers the way Groq's API documents it.
 
-Run from a checkout of Ultron (`uv run pytest path/to/groq/tests`).
+Run from a checkout of Atlas (`uv run pytest path/to/groq/tests`).
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from ultron.sdk.provider import ContextOverflowError, Message
+from atlas.sdk.provider import ContextOverflowError, Message
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
-    spec = importlib.util.spec_from_file_location("ultron_plugin_groq", HERE.parent / "plugin.py")
+    spec = importlib.util.spec_from_file_location("atlas_plugin_groq", HERE.parent / "plugin.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -156,7 +156,7 @@ def test_the_plugin_registers_the_provider_and_the_transcriber() -> None:
 
 
 def _reading(**kw: Any) -> Any:
-    from ultron.sdk.media import Reading
+    from atlas.sdk.media import Reading
 
     fields: dict[str, Any] = {
         "kind": "audio",
@@ -172,7 +172,7 @@ def _reading(**kw: Any) -> Any:
 def _fake_post(
     monkeypatch: Any, status: int = 200, body: bytes = b'{"text": "hi"}'
 ) -> dict[str, Any]:
-    from ultron.sdk import web as sdk_web
+    from atlas.sdk import web as sdk_web
 
     seen: dict[str, Any] = {}
 

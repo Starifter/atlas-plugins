@@ -1,7 +1,7 @@
 """What this marketplace promises about every entry, checked.
 
 Runs on every change in CI and by hand before a pull request. It reads each
-top-level directory the way Ultron's own discovery does - the manifest is
+top-level directory the way Atlas's own discovery does - the manifest is
 parsed and nothing is imported - so passing here means `/plugins market
 refresh` will list the entry and `/plugins install` will take it. It does not
 run the plugin: what a plugin does once consented to is the reader's call, and
@@ -15,14 +15,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ultron.errors import IncompatibleSDKError
-from ultron.plugins.discovery import (
+from atlas.errors import IncompatibleSDKError
+from atlas.plugins.discovery import (
     MANIFEST_FILENAME,
     MODULE_FILENAME,
     check_compatibility,
     read_manifest,
 )
-from ultron.sdk import SDK_VERSION
+from atlas.sdk import SDK_VERSION
 
 SKIPPED = {".git", ".github", "scripts"}
 """Directories that are the repository's and not a plugin's."""
@@ -44,15 +44,15 @@ def problems(directory: Path) -> list[str]:
         found.append("no description - the Discover tab shows it")
     if not manifest.version:
         found.append("no version - an update has to be visible as one")
-    if not manifest.requires_ultron_sdk:
-        found.append("no requires_ultron_sdk - say which SDK the plugin was written against")
+    if not manifest.requires_atlas_sdk:
+        found.append("no requires_atlas_sdk - say which SDK the plugin was written against")
     else:
         try:
             check_compatibility(manifest)
         except IncompatibleSDKError as exc:
             found.append(f"{exc} (this SDK is {SDK_VERSION})")
     if manifest.autoload:
-        found.append("autoload: true - Ultron honours it only for the plugins it ships")
+        found.append("autoload: true - Atlas honours it only for the plugins it ships")
     found.extend(f"warning: {warning}" for warning in manifest.warnings)
     return found
 

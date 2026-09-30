@@ -2,7 +2,7 @@
 name: deepseek
 description: The DeepSeek model provider - DeepSeek's own models, at DeepSeek.
 version: "1.0.0"
-requires_ultron_sdk: ">=1.25,<2"
+requires_atlas_sdk: ">=1.25,<2"
 categories: [provider, models]
 logo: logo.svg
 contracts:
@@ -24,19 +24,19 @@ DeepSeek's models - `deepseek-v4-pro`, `deepseek-flash` - at
 
 ```
 /plugins install deepseek
-ultron auth add deepseek              # a key from platform.deepseek.com, or DEEPSEEK_API_KEY in ~/.ultron/.env
+atlas auth add deepseek              # a key from platform.deepseek.com, or DEEPSEEK_API_KEY in ~/.atlas/.env
 ```
 
 then `provider: deepseek` and a `model` in `config.json`, or `--provider deepseek --model
-deepseek-v4-pro`. **There is no default model**; `ultron models list deepseek` shows what
-DeepSeek serves. It needs Ultron's SDK 1.25 or later.
+deepseek-v4-pro`. **There is no default model**; `atlas models list deepseek` shows what
+DeepSeek serves. It needs Atlas's SDK 1.25 or later.
 
 ## The catalog is live
 
 The manifest lists no models. `/model list --refresh` asks DeepSeek's `GET /models`, which
 says each model's window, reply ceiling, whether it takes pictures, and which thinking
 efforts it supports - so `/think` offers exactly those. Prices come from the catalog
-Ultron publishes, hydrated from [models.dev](https://models.dev).
+Atlas publishes, hydrated from [models.dev](https://models.dev).
 
 ## Thinking
 
@@ -46,7 +46,7 @@ DeepSeek maps it onto `high` itself.
 
 A model that thought keeps its reasoning between tool calls only if every earlier turn
 sends its `reasoning_content` back, and DeepSeek refuses a request with tools that leaves
-it out. This plugin sends it back - which is what Ultron's SDK 1.25 added. A turn another
+it out. This plugin sends it back - which is what Atlas's SDK 1.25 added. A turn another
 provider wrote, before a `/model` switch, has no DeepSeek reasoning to send and sends
 none.
 

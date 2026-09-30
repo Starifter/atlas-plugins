@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from llama_cpp_testing import FakeClient, LlamaCppProvider, message, plugin
 
-from ultron.sdk.provider import ContextOverflowError, ImageBlock, Message, TextBlock
+from atlas.sdk.provider import ContextOverflowError, ImageBlock, Message, TextBlock
 
 
 class Server:

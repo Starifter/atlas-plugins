@@ -2,7 +2,7 @@
 name: ollama
 description: Models through a local Ollama - no key, no bill - or Ollama's cloud with a key.
 version: "1.0.0"
-requires_ultron_sdk: ">=1.24,<2"
+requires_atlas_sdk: ">=1.24,<2"
 categories: [provider, models, local]
 logo: logo.svg
 contracts:
@@ -65,13 +65,13 @@ ollama pull qwen3
 ```
 
 If Ollama holds exactly one model, `model` can be left out and that one is used. With
-several, Ultron asks you to pick; `ultron models list ollama` shows them.
+several, Atlas asks you to pick; `atlas models list ollama` shows them.
 
 **Set the context length.** This is the one setting that matters. Ollama loads a model
 with a context that depends on your GPU's memory - **4k under 24 GB**, 32k up to 48 GB,
 256k above - unless `OLLAMA_CONTEXT_LENGTH` says otherwise. Its OpenAI endpoint has no way
 to ask for more per request, and a prompt that does not fit is cut from the front
-without an error. Ultron's own instructions and tools come to several thousand tokens,
+without an error. Atlas's own instructions and tools come to several thousand tokens,
 so 4k is not enough for an agent. Raise it (at least 32k; 64k is Ollama's own advice for
 agents) and tell the plugin the same number:
 
@@ -87,11 +87,11 @@ What the plugin does with it:
 
 - **Before each request**, it loads the model if it is not in memory - exactly as the
   request would have - and reads the context Ollama actually gave it from `/api/ps`.
-- **The session follows that size.** From the first reply on, Ultron compacts against
+- **The session follows that size.** From the first reply on, Atlas compacts against
   the context Ollama loaded, not the one it started with. A session starts on the loaded
   size if the model is already in memory, otherwise on your `context_length`, otherwise
   on 4096 - and corrects itself after one turn either way.
-- **It refuses a request that would not fit** instead of letting Ollama cut it. Ultron
+- **It refuses a request that would not fit** instead of letting Ollama cut it. Atlas
   compacts the conversation against the real size and tries once more; only if that still
   does not fit does the error reach you, saying how many tokens the turn needs and how to
   raise the limit. The size is estimated - Ollama cannot count tokens for a client - and
@@ -107,7 +107,7 @@ size, not this server's. It is not checked.
 ## Cloud
 
 ```
-ultron auth add ollama-cloud          # or OLLAMA_API_KEY in ~/.ultron/.env
+atlas auth add ollama-cloud          # or OLLAMA_API_KEY in ~/.atlas/.env
 ```
 
 ```jsonc
@@ -115,13 +115,13 @@ ultron auth add ollama-cloud          # or OLLAMA_API_KEY in ~/.ultron/.env
 ```
 
 Cloud models run at their full context, so the window is the model's own. The model ids
-are the ones `ultron models list ollama-cloud` shows, which are what ollama.com's
+are the ones `atlas models list ollama-cloud` shows, which are what ollama.com's
 `/api/tags` returns. The plan is a subscription rather than a per-token price, so
 `/status` reports cost as unknown, never as zero.
 
 ## The catalog is live
 
-`/model list --refresh` (or `ultron models refresh ollama`) lists models from `/api/tags`
+`/model list --refresh` (or `atlas models refresh ollama`) lists models from `/api/tags`
 and asks `/api/show` about each one:
 
 - **The window.** For local, the loaded size or your `context_length`, never the model's
@@ -173,4 +173,4 @@ Nothing here is a credential. A `base_url` with a username or password in it is 
 - **No fast mode and no cache breakpoints.** Ollama reuses its cache on a matching prefix
   by itself, and reports the reuse as cached tokens on `/status`.
 - **Tools are required.** A model that cannot call tools is refused with a pointer to
-  ones that can, because every Ultron turn offers tools.
+  ones that can, because every Atlas turn offers tools.

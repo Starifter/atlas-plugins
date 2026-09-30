@@ -1,8 +1,8 @@
 """Deepgram - speech-to-text for voice notes and recordings.
 
 A media reader and nothing else (`media.md` §8.3): Deepgram sells transcription and
-no model Ultron could chat with, so its key is the plugin's own, read from
-`DEEPGRAM_API_KEY` in the environment or `~/.ultron/.env` - never an auth profile,
+no model Atlas could chat with, so its key is the plugin's own, read from
+`DEEPGRAM_API_KEY` in the environment or `~/.atlas/.env` - never an auth profile,
 which is for model vendors and rotates with them.
 """
 
@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from ultron.sdk.auth import SecretRef, read_dotenv, resolve
-from ultron.sdk.media import Reading, Understood
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.runtime import CredentialError
-from ultron.sdk.web import post
+from atlas.sdk.auth import SecretRef, read_dotenv, resolve
+from atlas.sdk.media import Reading, Understood
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.runtime import CredentialError
+from atlas.sdk.web import post
 
 ENDPOINT = "https://api.deepgram.com/v1/listen"
 DEFAULT_MODEL = "nova-3"
@@ -30,7 +30,7 @@ AUDIO_TYPES: tuple[str, ...] = (
     "audio/webm",
     "audio/flac",
 )
-"""Every audio type Ultron stores. Deepgram reads the container itself; the type
+"""Every audio type Atlas stores. Deepgram reads the container itself; the type
 is sent as the body's `Content-Type`."""
 
 
@@ -69,7 +69,7 @@ class Deepgram:
                 return ""
         except CredentialError:
             pass
-        return f"no {self.ref.id} (store a Deepgram key in ~/.ultron/.env)"
+        return f"no {self.ref.id} (store a Deepgram key in ~/.atlas/.env)"
 
     def _key(self) -> str:
         return resolve(self.ref, dotenv=read_dotenv(self.workspace))
@@ -92,7 +92,7 @@ class Deepgram:
             headers={"Authorization": f"Token {self._key()}"},
             timeout=reading.timeout,
             max_bytes=4 * 1024 * 1024,
-            user_agent="ultron-deepgram",
+            user_agent="atlas-deepgram",
         )
         if response.status >= 400:
             raise RuntimeError(f"HTTP {response.status} from Deepgram: {_why(response.body)}")

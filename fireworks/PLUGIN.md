@@ -2,7 +2,7 @@
 name: fireworks
 description: The Fireworks AI model provider - open models, hosted at Fireworks.
 version: "1.0.0"
-requires_ultron_sdk: ">=1.25,<2"
+requires_atlas_sdk: ">=1.25,<2"
 categories: [provider, models]
 logo: logo.svg
 contracts:
@@ -24,18 +24,18 @@ Open models - Kimi, DeepSeek, Qwen, GLM, GPT-OSS - hosted at
 
 ```
 /plugins install fireworks
-ultron auth add fireworks             # a key from fireworks.ai, or FIREWORKS_API_KEY in ~/.ultron/.env
+atlas auth add fireworks             # a key from fireworks.ai, or FIREWORKS_API_KEY in ~/.atlas/.env
 ```
 
 then `provider: fireworks` and a `model` in `config.json`, with the id as Fireworks
 writes it: `accounts/fireworks/models/kimi-k2p6`. **There is no default model**;
-`ultron models list fireworks` shows what Fireworks serves. It needs Ultron's SDK 1.25
+`atlas models list fireworks` shows what Fireworks serves. It needs Atlas's SDK 1.25
 or later.
 
 ## The catalog is live
 
 The manifest lists no models. `/model list --refresh` asks Fireworks' `GET /models`.
-Prices come from the catalog Ultron publishes, hydrated from
+Prices come from the catalog Atlas publishes, hydrated from
 [models.dev](https://models.dev), so `/status` knows what a turn cost - and says
 *unknown*, never zero, for a model it has no price for.
 
@@ -43,7 +43,7 @@ Prices come from the catalog Ultron publishes, hydrated from
 
 By default Fireworks lowers a request's reply ceiling to make an overflowing prompt fit.
 This plugin asks it not to (`context_length_exceeded_behavior: error`), so an overflow is
-an error Ultron hears and answers by compacting and trying again.
+an error Atlas hears and answers by compacting and trying again.
 
 ## Thinking
 
@@ -51,7 +51,7 @@ There is no `/think`: `reasoning_effort` is taken by some of Fireworks' models a
 others, and neither its documentation nor its listing says which, so a menu here would
 be a guess. A model that reasons does so at its own default. Its reasoning is shown as
 thinking and - since a Fireworks model loses its thinking between tool calls otherwise -
-sent back with each earlier turn, which is what Ultron's SDK 1.25 added.
+sent back with each earlier turn, which is what Atlas's SDK 1.25 added.
 
 ## What reaches Fireworks
 

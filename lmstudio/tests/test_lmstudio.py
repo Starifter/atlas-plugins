@@ -1,7 +1,7 @@
-"""The LM Studio plugin, driven the way Ultron drives it: a fake `openai` client
+"""The LM Studio plugin, driven the way Atlas drives it: a fake `openai` client
 for `/v1`, and LM Studio's REST API answered from a table.
 
-Run from a checkout of Ultron (`uv run pytest path/to/lmstudio/tests`).
+Run from a checkout of Atlas (`uv run pytest path/to/lmstudio/tests`).
 """
 
 from __future__ import annotations
@@ -15,17 +15,17 @@ from typing import Any
 
 import pytest
 
-from ultron.sdk.plugin_entry import PluginContext
-from ultron.sdk.provider import ContextOverflowError, Message
-from ultron.sdk.runtime import ConfigError, ProviderError
-from ultron.sdk.tool_plugin import ToolSpec
+from atlas.sdk.plugin_entry import PluginContext
+from atlas.sdk.provider import ContextOverflowError, Message
+from atlas.sdk.runtime import ConfigError, ProviderError
+from atlas.sdk.tool_plugin import ToolSpec
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "ultron_plugin_lmstudio", HERE.parent / "plugin.py"
+        "atlas_plugin_lmstudio", HERE.parent / "plugin.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -145,8 +145,8 @@ def test_no_token_is_the_ordinary_case(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_register_binds_the_settings(server: Server) -> None:
     ctx = PluginContext(plugin="lmstudio", settings={"context_length": 32768}, providers=True)
     plugin.LMStudioPlugin().register(ctx)
-    from ultron.providers import provider_class
-    from ultron.providers.embedding import known_embedders
+    from atlas.providers import provider_class
+    from atlas.providers.embedding import known_embedders
 
     cls: Any = provider_class("lmstudio")
     assert cls is not None and issubclass(cls, LMStudioProvider)

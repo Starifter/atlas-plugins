@@ -1,20 +1,20 @@
-# Ultron plugins
+# Atlas plugins
 
-The official plugin marketplace for [Ultron](https://github.com/Starifter/ultron).
+The official plugin marketplace for [Atlas](https://github.com/Starifter/atlas).
 Every top-level directory here is one plugin: a `PLUGIN.md` manifest and a `plugin.py`
-beside it, written against `ultron.sdk` and nothing else - exactly what the plugins
-Ultron itself ships are made of.
+beside it, written against `atlas.sdk` and nothing else - exactly what the plugins
+Atlas itself ships are made of.
 
-Every Ultron install has this marketplace connected under the name `official`. Nothing is
+Every Atlas install has this marketplace connected under the name `official`. Nothing is
 fetched until you ask:
 
 ```
 /plugins market refresh official      fetch or update the copy on this machine
 /plugins                              Discover tab: what it offers
-/plugins install dice                 copy one into ~/.ultron/plugins/ and enable it
+/plugins install dice                 copy one into ~/.atlas/plugins/ and enable it
 ```
 
-Installing is two things said out loud - a copy into `~/.ultron/plugins/<name>/`, then a
+Installing is two things said out loud - a copy into `~/.atlas/plugins/<name>/`, then a
 line in `plugins_enabled` - and the plugin loads on the next session. A marketplace is
 where a plugin comes from and never where one runs from: forgetting this marketplace
 (`/plugins market remove official`) leaves every plugin installed from it in place.
@@ -37,17 +37,17 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 
 ## What "official" means
 
-Only that Ultron knows this repository's address. A plugin here goes through the same
+Only that Atlas knows this repository's address. A plugin here goes through the same
 refresh, the same copy and the same consent line as one from any other marketplace, and
 nothing is allowed or refused because it came from here. What the marketplace promises is
 the check in [`scripts/validate.py`](scripts/validate.py), run before every merge: each entry
 has a manifest that parses, a name that matches its directory, a version, an SDK range that
-the current SDK satisfies, and no `autoload` - which Ultron refuses from anything it did
+the current SDK satisfies, and no `autoload` - which Atlas refuses from anything it did
 not ship, so a plugin here that said it would be a plugin lying about itself.
 
-CI runs the same check, but cannot yet: it installs Ultron from its repository, which is
+CI runs the same check, but cannot yet: it installs Atlas from its repository, which is
 private for now, so the `validate` job fails before it reaches a plugin. Until that changes,
-the check is run against a local Ultron checkout, and a red `validate` says nothing about
+the check is run against a local Atlas checkout, and a red `validate` says nothing about
 the change it is on.
 
 ## Pointing an install elsewhere
@@ -56,7 +56,7 @@ the change it is on.
 repository reads it in place, which is how it is developed; `""` disconnects it.
 
 ```json
-{ "plugin_marketplace_official": "~/dev/ultron-plugins" }
+{ "plugin_marketplace_official": "~/dev/atlas-plugins" }
 ```
 
 ## Adding a plugin

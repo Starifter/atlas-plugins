@@ -2,7 +2,7 @@
 name: deepgram
 description: Deepgram speech-to-text - voice notes and recordings transcribed by Nova.
 version: "1.0.0"
-requires_ultron_sdk: ">=1.23,<2"
+requires_atlas_sdk: ">=1.23,<2"
 categories: [audio]
 logo: logo.svg
 contracts:
@@ -11,7 +11,7 @@ config_schema:
   api_key_env:
     type: str
     default: DEEPGRAM_API_KEY
-    description: The variable the key is read from, in the environment or ~/.ultron/.env.
+    description: The variable the key is read from, in the environment or ~/.atlas/.env.
   model:
     type: str
     default: ""
@@ -32,7 +32,7 @@ transcribed by Nova (`nova-3` unless `model` says otherwise).
 /plugins install deepgram
 ```
 
-then put `DEEPGRAM_API_KEY=...` in `~/.ultron/.env`. `ultron "store my deepgram api key"`
+then put `DEEPGRAM_API_KEY=...` in `~/.atlas/.env`. `atlas "store my deepgram api key"`
 is the shortest way to do that. The key is the plugin's own, not an auth profile:
 Deepgram sells transcription and no model you could chat with, and profiles are for
 model vendors. The plugin loads without a key and reports itself not ready, so until
@@ -51,7 +51,7 @@ asked to detect the language rather than assume English.
 ## What reaches Deepgram
 
 The audio, the model name, the language hint and your key. Never the conversation, and
-never anything else from Ultron.
+never anything else from Atlas.
 
 ## Not tested live
 

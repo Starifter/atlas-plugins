@@ -6,7 +6,7 @@ the SDK's OpenAI-compatible base with DeepSeek's own parts declared on it
 it, every earlier turn's `reasoning_content` sent back (DeepSeek refuses a request
 with tools that leaves it out), and a cache DeepSeek reports in its own words.
 
-Requires the `openai` package (`pip install openai`) and Ultron's SDK 1.25, for
+Requires the `openai` package (`pip install openai`) and Atlas's SDK 1.25, for
 `replay_reasoning_as`.
 """
 
@@ -15,10 +15,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatProvider
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import ModelEntry, ThinkingLevel, Usage
-from ultron.sdk.runtime import ProviderError
+from atlas.sdk.openai_compat import OpenAICompatProvider
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import ModelEntry, ThinkingLevel, Usage
+from atlas.sdk.runtime import ProviderError
 
 BASE_URL = "https://api.deepseek.com"
 
@@ -28,7 +28,7 @@ It maps `medium` onto `high` itself, so offering `medium` would be a level that 
 nothing a neighbour does not."""
 
 FROM_EFFORT: dict[str, ThinkingLevel] = {"none": "off", "low": "low", "high": "high", "max": "max"}
-"""A listing's `effort.supported_levels` in Ultron's words; anything else is dropped."""
+"""A listing's `effort.supported_levels` in Atlas's words; anything else is dropped."""
 
 
 class DeepSeekProvider(OpenAICompatProvider):
@@ -45,7 +45,7 @@ class DeepSeekProvider(OpenAICompatProvider):
     penalties, and thinking is on by default. A `Sampling` is dropped, as the core
     drops it for any provider that did not declare."""
     replay_reasoning_as = "reasoning_content"
-    """With tools - and Ultron always sends them - every earlier assistant turn has
+    """With tools - and Atlas always sends them - every earlier assistant turn has
     to carry its own `reasoning_content` back, or DeepSeek answers 400."""
 
     def thinking_request(self, level: ThinkingLevel) -> dict[str, Any]:

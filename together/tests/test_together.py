@@ -1,7 +1,7 @@
-"""The Together plugin, driven the way Ultron drives it: a fake `openai` client that
+"""The Together plugin, driven the way Atlas drives it: a fake `openai` client that
 records each request and answers the way Together's API documents it.
 
-Run from a checkout of Ultron (`uv run pytest path/to/together/tests`).
+Run from a checkout of Atlas (`uv run pytest path/to/together/tests`).
 """
 
 from __future__ import annotations
@@ -12,14 +12,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from ultron.sdk.provider import ContextOverflowError, Message
+from atlas.sdk.provider import ContextOverflowError, Message
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "ultron_plugin_together", HERE.parent / "plugin.py"
+        "atlas_plugin_together", HERE.parent / "plugin.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

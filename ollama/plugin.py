@@ -20,7 +20,7 @@ tells the session that size when it can, loads the model before the first
 request so the size is known, and refuses a request that would not fit - with
 how to raise it - rather than let Ollama cut it.
 
-Requires the `openai` package (`pip install openai`, or `pip install "ultron[openai]"`).
+Requires the `openai` package (`pip install openai`, or `pip install "atlas[openai]"`).
 """
 
 from __future__ import annotations
@@ -34,9 +34,9 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatEmbedder, OpenAICompatProvider, check_base_url
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import (
+from atlas.sdk.openai_compat import OpenAICompatEmbedder, OpenAICompatProvider, check_base_url
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import (
     DeltaSink,
     Message,
     ModelEntry,
@@ -44,8 +44,8 @@ from ultron.sdk.provider import (
     Sampling,
     ThinkingLevel,
 )
-from ultron.sdk.runtime import ConfigError, ProviderError
-from ultron.sdk.tool_plugin import ToolSpec
+from atlas.sdk.runtime import ConfigError, ProviderError
+from atlas.sdk.tool_plugin import ToolSpec
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 """Where Ollama listens unless `OLLAMA_HOST` says otherwise."""
@@ -69,7 +69,7 @@ EFFORT: dict[ThinkingLevel, str] = {
     "high": "high",
     "max": "max",
 }
-"""Ultron's levels in Ollama's words. `none` is Ollama's `think: false`."""
+"""Atlas's levels in Ollama's words. `none` is Ollama's `think: false`."""
 
 ON_OFF: tuple[ThinkingLevel, ...] = ("off", "high")
 """The menu for a model whose thinking is a switch: off, or on at the level a
@@ -110,14 +110,14 @@ async def fetch_json(url: str, *, headers: Mapping[str, str] | None = None) -> M
     """One GET through the core's client. `allow_private` because the address is
     the operator's setting, and a local Ollama is by its nature on this machine
     or this network; the URL was never the model's."""
-    from ultron.sdk.web import get
+    from atlas.sdk.web import get
 
     response = await get(
         url,
         allow_private=True,
         timeout=NATIVE_TIMEOUT,
         headers=dict(headers or {}),
-        user_agent="ultron-ollama",
+        user_agent="atlas-ollama",
         max_bytes=4_000_000,
     )
     return _decoded(response.status, response.body, url)
@@ -131,7 +131,7 @@ async def post_json(
     timeout: float = NATIVE_TIMEOUT,
 ) -> Mapping[str, Any]:
     """One POST through the core's client, as JSON."""
-    from ultron.sdk.web import post
+    from atlas.sdk.web import post
 
     response = await post(
         url,
@@ -139,7 +139,7 @@ async def post_json(
         allow_private=True,
         timeout=timeout,
         headers=dict(headers or {}),
-        user_agent="ultron-ollama",
+        user_agent="atlas-ollama",
         max_bytes=4_000_000,
     )
     return _decoded(response.status, response.body, url)
@@ -304,11 +304,11 @@ class _Ollama(OpenAICompatProvider):
         if "not found" in lowered and ("pull" in lowered or "model" in lowered):
             return ProviderError(
                 f"{self.vendor()} has no model {self.model!r} - `ollama pull {self.model}`, "
-                f"or `ultron models list` for what it has ({exc})"
+                f"or `atlas models list` for what it has ({exc})"
             )
         if "does not support tools" in lowered:
             return ProviderError(
-                f"{self.model!r} cannot call tools, and Ultron's turns use them - choose a "
+                f"{self.model!r} cannot call tools, and Atlas's turns use them - choose a "
                 f"model with tool support (ollama.com/search?c=tools) ({exc})"
             )
         return None
@@ -361,8 +361,8 @@ class _Ollama(OpenAICompatProvider):
 
     async def resolve_model(self) -> str:
         raise ConfigError(
-            f"the {self.vendor()} provider needs a model - set ULTRON_MODEL (or `model` in "
-            f"~/.ultron/config.json) to one of `ultron models list {self.name}`"
+            f"the {self.vendor()} provider needs a model - set ATLAS_MODEL (or `model` in "
+            f"~/.atlas/config.json) to one of `atlas models list {self.name}`"
         )
 
 
@@ -491,7 +491,7 @@ class OllamaProvider(_Ollama):
                 "(or any model with tool support) first"
             )
         raise ConfigError(
-            "Ollama holds several models - set `model` (or ULTRON_MODEL) to one of: "
+            "Ollama holds several models - set `model` (or ATLAS_MODEL) to one of: "
             + ", ".join(sorted(names))
         )
 

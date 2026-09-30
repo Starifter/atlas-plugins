@@ -16,9 +16,9 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatProvider
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import ModelEntry, ThinkingLevel
+from atlas.sdk.openai_compat import OpenAICompatProvider
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import ModelEntry, ThinkingLevel
 
 BASE_URL = "https://api.groq.com/openai/v1"
 TRANSCRIPTIONS_URL = f"{BASE_URL}/audio/transcriptions"
@@ -33,7 +33,7 @@ AUDIO_EXTENSIONS: dict[str, str] = {
     "audio/webm": "webm",
     "audio/flac": "flac",
 }
-"""Every audio type Ultron stores, each of which Groq documents taking."""
+"""Every audio type Atlas stores, each of which Groq documents taking."""
 
 EFFORT_ONLY: tuple[ThinkingLevel, ...] = ("low", "medium", "high")
 """GPT-OSS: `reasoning_effort` low to high, and no off - `include_reasoning: false`
@@ -115,7 +115,7 @@ class GroqWhisper:
     """Groq's transcriptions endpoint as a media reader (`media.md` §8.3).
 
     Named `groq/whisper`, so the core hands it the key the `groq` provider would
-    use - a profile, or `GROQ_API_KEY` in `~/.ultron/.env` - and never reads it on
+    use - a profile, or `GROQ_API_KEY` in `~/.atlas/.env` - and never reads it on
     the reader's behalf. It sees the bytes and a language hint, never the
     conversation. Priority 40: ahead of `openai/whisper` at 50, because the same
     model costs a tenth as much here; `audio_reader` pins either.
@@ -142,12 +142,12 @@ class GroqWhisper:
 
     def ready(self) -> str:
         if not self._key:
-            return "no groq key (ultron auth add groq, or GROQ_API_KEY in ~/.ultron/.env)"
+            return "no groq key (atlas auth add groq, or GROQ_API_KEY in ~/.atlas/.env)"
         return ""
 
     async def read(self, reading: Any) -> Any:
-        from ultron.sdk.media import Understood
-        from ultron.sdk.web import post
+        from atlas.sdk.media import Understood
+        from atlas.sdk.web import post
 
         fields = [("model", self.model), ("response_format", "json")]
         if reading.language:
@@ -161,7 +161,7 @@ class GroqWhisper:
             headers={"Authorization": f"Bearer {self._key}"},
             timeout=reading.timeout,
             max_bytes=4 * 1024 * 1024,
-            user_agent="ultron-groq",
+            user_agent="atlas-groq",
         )
         if response.status >= 400:
             raise RuntimeError(f"HTTP {response.status} from Groq: {_why(response.body)}")
@@ -177,7 +177,7 @@ def multipart(
     fields: list[tuple[str, str]], filename: str, media_type: str, data: bytes
 ) -> tuple[bytes, str]:
     """A `multipart/form-data` body with the file last, and its content type."""
-    boundary = f"----ultron{uuid.uuid4().hex}"
+    boundary = f"----atlas{uuid.uuid4().hex}"
     body = bytearray()
     for name, value in fields:
         body += (

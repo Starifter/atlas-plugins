@@ -14,10 +14,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatProvider
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import ModelEntry, Pricing, Usage
-from ultron.sdk.runtime import ProviderError
+from atlas.sdk.openai_compat import OpenAICompatProvider
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import ModelEntry, Pricing, Usage
+from atlas.sdk.runtime import ProviderError
 
 BASE_URL = "https://api.together.ai/v1"
 
@@ -62,7 +62,7 @@ class TogetherProvider(OpenAICompatProvider):
     sampling = True
     extra_body = {"context_length_exceeded_behavior": "error"}
     """Refuse a request that does not fit, rather than let Together shorten it - an
-    overflow is what Ultron's compaction answers, and it can only answer one it hears."""
+    overflow is what Atlas's compaction answers, and it can only answer one it hears."""
     overflow_markers = ("must be less than the context length",)
     """Together's words: "Input token count + `max_tokens` parameter must be less than
     the context length"."""

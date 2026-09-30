@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.tool_plugin import Tool, ToolResult
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.tool_plugin import Tool, ToolResult
 
 
 class RollDice(Tool):

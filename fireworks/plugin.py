@@ -6,14 +6,14 @@ so this is the SDK's OpenAI-compatible base with Fireworks' own parts declared o
 model loses its thinking across a tool loop without it, and a request that would not
 fit refused rather than shortened.
 
-Requires the `openai` package (`pip install openai`) and Ultron's SDK 1.25, for
+Requires the `openai` package (`pip install openai`) and Atlas's SDK 1.25, for
 `replay_reasoning_as`.
 """
 
 from __future__ import annotations
 
-from ultron.sdk.openai_compat import OpenAICompatProvider
-from ultron.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.openai_compat import OpenAICompatProvider
+from atlas.sdk.plugin_entry import Plugin, PluginContext
 
 BASE_URL = "https://api.fireworks.ai/inference/v1"
 
@@ -38,7 +38,7 @@ class FireworksProvider(OpenAICompatProvider):
     earlier assistant turn sends its `reasoning_content` back."""
     extra_body = {"context_length_exceeded_behavior": "error"}
     """By default Fireworks lowers `max_tokens` to make an overflowing request fit.
-    Refused instead, so Ultron's compaction hears the overflow and answers it."""
+    Refused instead, so Atlas's compaction hears the overflow and answers it."""
 
 
 class FireworksPlugin(Plugin):

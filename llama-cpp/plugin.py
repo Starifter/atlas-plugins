@@ -18,7 +18,7 @@ keeps it up for as long as this process runs. Looking for the program is the
 plugin's, as `ready()` is for any plugin; the core never does it, and nothing
 here fetches an executable.
 
-Requires the `openai` package (`pip install openai`, or `pip install "ultron[openai]"`).
+Requires the `openai` package (`pip install openai`, or `pip install "atlas[openai]"`).
 """
 
 from __future__ import annotations
@@ -40,10 +40,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatEmbedder, OpenAICompatProvider, check_base_url
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import ModelEntry, Pricing, ThinkingLevel
-from ultron.sdk.runtime import ConfigError, ProviderError, scrubbed_environment
+from atlas.sdk.openai_compat import OpenAICompatEmbedder, OpenAICompatProvider, check_base_url
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import ModelEntry, Pricing, ThinkingLevel
+from atlas.sdk.runtime import ConfigError, ProviderError, scrubbed_environment
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
 """Where `llama-server` listens unless told otherwise (`--host`, `--port`)."""
@@ -52,7 +52,7 @@ PLACEHOLDER_KEY = "no-key"
 """What the `openai` SDK is handed when there is no credential. The SDK refuses
 to build a client without one; a server started without `--api-key` ignores the
 header. A server started *with* one refuses this, and says so with a 401 that
-reads as: add `LLAMA_SERVER_API_KEY` to `~/.ultron/.env`."""
+reads as: add `LLAMA_SERVER_API_KEY` to `~/.atlas/.env`."""
 
 LEVELS: tuple[ThinkingLevel, ...] = ("off", "low", "medium", "high", "max")
 """One menu for every model, because the switch is one request field. `off`
@@ -71,7 +71,7 @@ EFFORT: dict[ThinkingLevel, str] = {
     "high": "high",
     "max": "max",
 }
-"""Ultron's levels in `llama-server`'s `reasoning_effort` words."""
+"""Atlas's levels in `llama-server`'s `reasoning_effort` words."""
 
 FREE = Pricing(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0)
 """A declaration, not a guess (`model-catalog.md` C6): a model on this machine
@@ -172,7 +172,7 @@ class LlamaCppProvider(OpenAICompatProvider):
             )
         raise ConfigError(
             f"the llama.cpp server at {self.base_url_in_use} serves several models - set `model` "
-            "(or ULTRON_MODEL) to one of: " + ", ".join(ids)
+            "(or ATLAS_MODEL) to one of: " + ", ".join(ids)
         )
 
     def describe_failure(self, exc: Exception) -> Exception | None:
@@ -187,7 +187,7 @@ class LlamaCppProvider(OpenAICompatProvider):
         if " 401 " in f" {message} " or "Unauthorized" in message:
             return ProviderError(
                 f"the llama.cpp server at {where} wants a key - put the server's "
-                f"--api-key in ~/.ultron/.env as LLAMA_SERVER_API_KEY ({exc})"
+                f"--api-key in ~/.atlas/.env as LLAMA_SERVER_API_KEY ({exc})"
             )
         if type(exc).__name__ == "APIConnectionError":
             return ProviderError(
@@ -294,10 +294,10 @@ async def fetch_json(url: str) -> Mapping[str, Any]:
     """One GET through the core's client, as JSON. `allow_private` because the
     address is the operator's setting and a llama.cpp server is, by the plugin's
     whole point, on this machine or this network; the URL was never the model's."""
-    from ultron.sdk.web import get
+    from atlas.sdk.web import get
 
     response = await get(
-        url, allow_private=True, timeout=PROPS_TIMEOUT, user_agent="ultron-llama-cpp"
+        url, allow_private=True, timeout=PROPS_TIMEOUT, user_agent="atlas-llama-cpp"
     )
     if response.status >= 400:
         raise ProviderError(f"HTTP {response.status} from {url}")
@@ -311,7 +311,7 @@ async def post_json(
     """One POST through the core's client: the status, and the body as JSON.
     Never raises for a status or a network failure - a count that cannot be
     had is an estimate, not a failed turn."""
-    from ultron.sdk.web import post
+    from atlas.sdk.web import post
 
     try:
         response = await post(
@@ -320,7 +320,7 @@ async def post_json(
             allow_private=True,
             timeout=PROPS_TIMEOUT,
             headers=dict(headers or {}),
-            user_agent="ultron-llama-cpp",
+            user_agent="atlas-llama-cpp",
             max_bytes=8_000_000,
         )
         decoded = json.loads(response.body.decode("utf-8") or "{}")
@@ -510,7 +510,7 @@ class ServerSpec:
     setting the operator wrote; the argv is built from them here and nowhere
     else, and is never a template a setting could inject into.
 
-    A plain class and not a dataclass: Ultron imports a plugin's module
+    A plain class and not a dataclass: Atlas imports a plugin's module
     without registering it in `sys.modules`, and `dataclass` under
     `from __future__ import annotations` looks the module up there.
     """
@@ -575,7 +575,7 @@ class ServerSpec:
 class ManagedServer:
     """One `llama-server` this process owns.
 
-    Started on first need and never at import or register - `ultron --tools`
+    Started on first need and never at import or register - `atlas --tools`
     installs this plugin too and must not leave a model loaded behind it.
     Stopped when this process exits (`atexit`), which is the gateway's exit for
     a detached gateway and the REPL's for `--local`: the server is a resource of
@@ -762,7 +762,7 @@ def _server_spec(
         mmproj=str(ctx.setting("server_mmproj", "") or "") if chat else "",
         args=tuple(str(a) for a in args) if isinstance(args, list | tuple) else (),
         startup_timeout=float(ctx.setting("server_startup_timeout", 600) or 600),
-        log_dir=Path(ctx.workspace) / ".ultron" / "llama-cpp",
+        log_dir=Path(ctx.workspace) / ".atlas" / "llama-cpp",
     )
 
 
@@ -779,7 +779,7 @@ class LlamaCppPlugin(Plugin):
     description = "A model provider for a llama.cpp server on this machine - no key, no bill."
 
     def register(self, ctx: PluginContext) -> None:
-        # The discriminator, as OpenClaw draws it: a model named for the
+        # The discriminator: a model named for the
         # plugin to serve means the plugin owns the process; none means
         # `base_url` names a server somebody else started.
         chat_model = str(ctx.setting("server_model", "") or "").strip()

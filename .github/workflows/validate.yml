@@ -1,6 +1,6 @@
 name: validate
 
-# Every entry is read the way Ultron reads it - manifest parsed, nothing
+# Every entry is read the way Atlas reads it - manifest parsed, nothing
 # imported - and has to pass scripts/validate.py. That check is the whole of
 # what this marketplace promises about a plugin. A plugin that ships tests
 # beside itself (`<name>/tests/`) has them run too; that is the plugin's own
@@ -19,6 +19,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "git+https://github.com/Starifter/ultron.git" pytest pytest-asyncio openai
+      - run: pip install "git+https://github.com/Starifter/atlas.git" pytest pytest-asyncio openai
       - run: python scripts/validate.py
       - run: python -m pytest

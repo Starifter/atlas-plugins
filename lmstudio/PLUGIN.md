@@ -2,7 +2,7 @@
 name: lmstudio
 description: Models loaded in LM Studio on this machine - no key, no bill.
 version: "1.0.0"
-requires_ultron_sdk: ">=1.24,<2"
+requires_atlas_sdk: ">=1.24,<2"
 categories: [provider, models, local]
 logo: logo.svg
 contracts:
@@ -53,12 +53,12 @@ a model by its key:
 ```
 
 `model` can be left out when only one model is loaded, or only one is downloaded.
-`ultron models list lmstudio` shows the keys.
+`atlas models list lmstudio` shows the keys.
 
 ## Context length
 
 LM Studio fixes a model's context when it loads it, and a model loaded on demand usually
-gets 4096 tokens. Ultron's own instructions and tools take several thousand, so that is
+gets 4096 tokens. Atlas's own instructions and tools take several thousand, so that is
 not enough for an agent. So the plugin loads the model itself before the first request:
 
 - **The size.** It loads at `context_length` when you set one; the model's
@@ -67,7 +67,7 @@ not enough for an agent. So the plugin loads the model itself before the first r
   reply on the session compacts against that size. A session starts on the loaded size
   if the model is already loaded, otherwise on your `context_length`, or 4096, and
   corrects itself after one turn either way.
-- **Refusing.** It refuses a request that would not fit instead of sending it. Ultron
+- **Refusing.** It refuses a request that would not fit instead of sending it. Atlas
   compacts against the real size and tries once more; only if that still does not fit
   does the error reach you, with how to fix it. The size is an estimate calibrated from
   what LM Studio reports after each reply.
@@ -78,7 +78,7 @@ loads it again at the new size.
 
 ## The catalog is live
 
-`/model list --refresh` (or `ultron models refresh lmstudio`) reads LM Studio's
+`/model list --refresh` (or `atlas models refresh lmstudio`) reads LM Studio's
 `/api/v1/models`. For every chat model downloaded, it keeps:
 
 - **The context a request gets**: the loaded size, or your `context_length`. Never the
@@ -108,7 +108,7 @@ What a model reasons is shown as it streams.
 ## A token
 
 None, by default. If you switch on **Require authentication** in LM Studio's server
-settings, create a token there and put it in `~/.ultron/.env` as `LM_API_TOKEN`. It
+settings, create a token there and put it in `~/.atlas/.env` as `LM_API_TOKEN`. It
 becomes a `lmstudio` auth profile like any provider's. The plugin never sends your
 `OPENAI_API_KEY` to LM Studio.
 

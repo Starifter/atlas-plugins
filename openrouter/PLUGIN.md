@@ -2,7 +2,7 @@
 name: openrouter
 description: The OpenRouter model provider - one key, every model it routes to.
 version: "1.1.0"
-requires_ultron_sdk: ">=1.23,<2"
+requires_atlas_sdk: ">=1.23,<2"
 categories: [provider, models]
 logo: logo.svg
 contracts:
@@ -29,10 +29,10 @@ config_schema:
     description: "`allow` or `deny`: whether the request may go to an upstream that stores prompts."
   site_url:
     type: str
-    description: "Sent as HTTP-Referer, OpenRouter's app attribution. Defaults to Ultron's repository."
+    description: "Sent as HTTP-Referer, OpenRouter's app attribution. Defaults to Atlas's repository."
   app_title:
     type: str
-    default: Ultron
+    default: Atlas
     description: "Sent as X-Title, the name OpenRouter lists the app under."
 python_dependencies:
   - "openai>=1.66"
@@ -46,8 +46,8 @@ and the rest, by the ids OpenRouter lists them under - `anthropic/claude-sonnet-
 
 ```
 /plugins install openrouter
-ultron auth login openrouter          # a browser sign-in that mints a key, or
-ultron auth add openrouter            # a key you made, or OPENROUTER_API_KEY in ~/.ultron/.env
+atlas auth login openrouter          # a browser sign-in that mints a key, or
+atlas auth add openrouter            # a key you made, or OPENROUTER_API_KEY in ~/.atlas/.env
 ```
 
 then `provider: openrouter` and a `model` in `config.json`, or `--provider openrouter
@@ -62,7 +62,7 @@ like any provider's, and never a setting.
 ## The catalog is live
 
 The manifest lists no models, on purpose. `catalog: live` means `/model list --refresh`
-(or `ultron models refresh openrouter`) asks `GET /models` and keeps what a listing may
+(or `atlas models refresh openrouter`) asks `GET /models` and keeps what a listing may
 say about each id: the context window, the reply ceiling, the price per million with
 OpenRouter's long-prompt surcharge as a second tier, what the model takes (image, audio,
 document, video) and when it appeared. A `:free` variant is priced at zero because it
@@ -111,11 +111,11 @@ profile's.
 
 ## Signing in with a browser
 
-`ultron auth login openrouter` opens `openrouter.ai/auth`, catches the redirect on a
+`atlas auth login openrouter` opens `openrouter.ai/auth`, catches the redirect on a
 one-shot listener at `127.0.0.1` (or takes the landed URL pasted back when it cannot),
 and exchanges the code for a key OpenRouter mints for this install - stored as the
 `openrouter:oauth` profile, a key like any other, and never shown. It is not OAuth as
-Ultron's `OAuthClient` describes it - no client id, a `callback_url` rather than a redirect
+Atlas's `OAuthClient` describes it - no client id, a `callback_url` rather than a redirect
 URI, an exchange that answers a key - so the plugin runs the flow itself (`oauth.md` §5.4)
 and `/auth` says `plugin-run flow`. OpenRouter has no `state` of its own, but echoes
 `callback_url` verbatim, so the flow's `state` rides inside it and is checked, in constant

@@ -16,9 +16,9 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatProvider
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import ModelEntry, PriceTier, Pricing, ThinkingLevel
+from atlas.sdk.openai_compat import OpenAICompatProvider
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import ModelEntry, PriceTier, Pricing, ThinkingLevel
 
 BASE_URL = "https://api.x.ai/v1"
 STT_URL = f"{BASE_URL}/stt"
@@ -31,11 +31,11 @@ AUDIO_EXTENSIONS: dict[str, str] = {
     "audio/wav": "wav",
     "audio/flac": "flac",
 }
-"""The audio types Ultron stores that xAI documents taking. WebM is not one of
+"""The audio types Atlas stores that xAI documents taking. WebM is not one of
 them, so a `.weba` voice note goes to another reader."""
 
 LEVELS: tuple[ThinkingLevel, ...] = ("low", "medium", "high", "max")
-"""xAI's efforts, with its `xhigh` as Ultron's `max`. There is no `off`: a Grok model
+"""xAI's efforts, with its `xhigh` as Atlas's `max`. There is no `off`: a Grok model
 that reasons cannot be told not to, and one that does not is a different model id."""
 
 EFFORT: dict[ThinkingLevel, str] = {
@@ -158,7 +158,7 @@ class XAITranscriber:
     """xAI's speech-to-text endpoint as a media reader (`media.md` §8.3).
 
     Named `xai/stt`, so the core hands it the key the `xai` provider would use -
-    a profile, or `XAI_API_KEY` in `~/.ultron/.env` - and never reads it on the
+    a profile, or `XAI_API_KEY` in `~/.atlas/.env` - and never reads it on the
     reader's behalf. It sees the bytes and a language hint, never the
     conversation. Priority 45: between `groq/whisper` (40) and `openai/whisper`
     (50), in the order of what an hour of audio costs at each.
@@ -183,12 +183,12 @@ class XAITranscriber:
 
     def ready(self) -> str:
         if not self._key:
-            return "no xai key (ultron auth add xai, or XAI_API_KEY in ~/.ultron/.env)"
+            return "no xai key (atlas auth add xai, or XAI_API_KEY in ~/.atlas/.env)"
         return ""
 
     async def read(self, reading: Any) -> Any:
-        from ultron.sdk.media import Understood
-        from ultron.sdk.web import post
+        from atlas.sdk.media import Understood
+        from atlas.sdk.web import post
 
         fields = [("model", self.model)]
         if reading.language:
@@ -204,7 +204,7 @@ class XAITranscriber:
             headers={"Authorization": f"Bearer {self._key}"},
             timeout=reading.timeout,
             max_bytes=4 * 1024 * 1024,
-            user_agent="ultron-xai",
+            user_agent="atlas-xai",
         )
         if response.status >= 400:
             raise RuntimeError(f"HTTP {response.status} from xAI: {_why(response.body)}")
@@ -222,7 +222,7 @@ def multipart(
     fields: list[tuple[str, str]], filename: str, media_type: str, data: bytes
 ) -> tuple[bytes, str]:
     """A `multipart/form-data` body with the file last, and its content type."""
-    boundary = f"----ultron{uuid.uuid4().hex}"
+    boundary = f"----atlas{uuid.uuid4().hex}"
     body = bytearray()
     for name, value in fields:
         body += (

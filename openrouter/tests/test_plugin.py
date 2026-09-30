@@ -1,8 +1,8 @@
-"""The OpenRouter plugin, driven the way Ultron drives it: a fake client that
+"""The OpenRouter plugin, driven the way Atlas drives it: a fake client that
 records the request, and replies shaped the way OpenRouter shapes them.
 
-Run from a checkout of Ultron (`uv run pytest path/to/openrouter/tests`), which
-supplies pytest-asyncio in auto mode and the `ultron.sdk` the plugin imports.
+Run from a checkout of Atlas (`uv run pytest path/to/openrouter/tests`), which
+supplies pytest-asyncio in auto mode and the `atlas.sdk` the plugin imports.
 """
 
 from __future__ import annotations
@@ -19,19 +19,19 @@ from typing import Any
 
 import pytest
 
-from ultron.prompting import CACHE_BOUNDARY  # the marker itself is not on the SDK surface
-from ultron.sdk.oauth import LoginContext
-from ultron.sdk.plugin_entry import PluginContext
-from ultron.sdk.provider import Message, Sampling, TextBlock, ToolResultBlock, ToolUseBlock
-from ultron.sdk.runtime import ConfigError, ProviderError
-from ultron.sdk.tool_plugin import ToolSpec
+from atlas.prompting import CACHE_BOUNDARY  # the marker itself is not on the SDK surface
+from atlas.sdk.oauth import LoginContext
+from atlas.sdk.plugin_entry import PluginContext
+from atlas.sdk.provider import Message, Sampling, TextBlock, ToolResultBlock, ToolUseBlock
+from atlas.sdk.runtime import ConfigError, ProviderError
+from atlas.sdk.tool_plugin import ToolSpec
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "ultron_plugin_openrouter", HERE.parent / "plugin.py"
+        "atlas_plugin_openrouter", HERE.parent / "plugin.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -125,7 +125,7 @@ def test_register_binds_the_settings_onto_a_class() -> None:
         providers=True,
     )
     plugin.OpenRouterPlugin().register(ctx)
-    from ultron.providers import provider_class
+    from atlas.providers import provider_class
 
     cls = provider_class("openrouter")
     assert cls is not None and issubclass(cls, OpenRouterProvider)
@@ -497,7 +497,7 @@ def test_the_callback_lands_the_code_and_the_exchange_mints_a_key() -> None:
 
 
 def test_a_pasted_url_with_another_state_is_refused() -> None:
-    from ultron.sdk.runtime import CredentialError
+    from atlas.sdk.runtime import CredentialError
 
     person = Person(opens=False, pastes="http://127.0.0.1:1/callback?state=theirs&code=x")
     _, post = exchange("x")
@@ -538,7 +538,7 @@ def test_without_a_browser_the_landed_url_is_pasted_back() -> None:
 
 
 def test_a_refused_exchange_is_a_credential_error_with_the_vendors_words() -> None:
-    from ultron.sdk.runtime import CredentialError
+    from atlas.sdk.runtime import CredentialError
 
     person = Person(opens=False, pastes="wrong")
     _, post = exchange("right")

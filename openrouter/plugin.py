@@ -8,7 +8,7 @@ thinking control, the `reasoning_details` a reply carries and the next request h
 to carry back, the `provider` routing block, cache breakpoints for the vendors that
 want them, and a `GET /models` that says what each model costs.
 
-Requires the `openai` package (`pip install openai`, or `pip install "ultron[openai]"`).
+Requires the `openai` package (`pip install openai`, or `pip install "atlas[openai]"`).
 """
 
 from __future__ import annotations
@@ -26,22 +26,22 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from ultron.sdk.oauth import LoginContext, Tokens
-from ultron.sdk.openai_compat import OpenAICompatProvider
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import (
+from atlas.sdk.oauth import LoginContext, Tokens
+from atlas.sdk.openai_compat import OpenAICompatProvider
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import (
     CACHE_TTLS,
     ModelEntry,
     PriceTier,
     Pricing,
     ThinkingLevel,
 )
-from ultron.sdk.runtime import ConfigError, CredentialError
+from atlas.sdk.runtime import ConfigError, CredentialError
 
 BASE_URL = "https://openrouter.ai/api/v1"
 
-DEFAULT_REFERER = "https://github.com/Starifter/ultron"
-DEFAULT_TITLE = "Ultron"
+DEFAULT_REFERER = "https://github.com/Starifter/atlas"
+DEFAULT_TITLE = "Atlas"
 """OpenRouter's attribution headers (`HTTP-Referer`, `X-Title`): optional, and what
 lists an app on their rankings. Both are settings, so an operator can name their own."""
 
@@ -60,7 +60,7 @@ EFFORT: dict[ThinkingLevel, str] = {
     "high": "high",
     "max": "max",
 }
-"""Ultron's levels in OpenRouter's words. `off` is not an effort but `enabled: false`."""
+"""Atlas's levels in OpenRouter's words. `off` is not an effort but `enabled: false`."""
 
 CACHED_VENDORS = {
     "anthropic": CACHE_TTLS,
@@ -155,9 +155,9 @@ class OpenRouterProvider(OpenAICompatProvider):
 
     async def resolve_model(self) -> str:
         raise ConfigError(
-            "the OpenRouter provider needs an explicit model - set ULTRON_MODEL "
-            "(or `model` in ~/.ultron/config.json) to an id like anthropic/claude-sonnet-5; "
-            "`ultron models list` shows what OpenRouter offers"
+            "the OpenRouter provider needs an explicit model - set ATLAS_MODEL "
+            "(or `model` in ~/.atlas/config.json) to an id like anthropic/claude-sonnet-5; "
+            "`atlas models list` shows what OpenRouter offers"
         )
 
     def entry_of(self, row: Mapping[str, Any]) -> ModelEntry | None:
@@ -317,7 +317,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
 
 
 def login(ctx: LoginContext) -> Tokens:
-    """`ultron auth login openrouter`: the browser, the callback, the exchange."""
+    """`atlas auth login openrouter`: the browser, the callback, the exchange."""
     return _run_login(ctx, post=_post_json, listen=_Callback)
 
 

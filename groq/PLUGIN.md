@@ -2,7 +2,7 @@
 name: groq
 description: The Groq model provider - open models, served fast - and Whisper for voice notes.
 version: "1.1.0"
-requires_ultron_sdk: ">=1.23,<2"
+requires_atlas_sdk: ">=1.23,<2"
 categories: [provider, models, audio]
 logo: logo.svg
 contracts:
@@ -31,18 +31,18 @@ built to answer fast.
 
 ```
 /plugins install groq
-ultron auth add groq                  # a key from console.groq.com, or GROQ_API_KEY in ~/.ultron/.env
+atlas auth add groq                  # a key from console.groq.com, or GROQ_API_KEY in ~/.atlas/.env
 ```
 
 then `provider: groq` and a `model` in `config.json`, or `--provider groq --model
 openai/gpt-oss-120b`. **There is no default model**: Groq's line-up changes month to
-month, and `ultron models list groq` shows what it serves today.
+month, and `atlas models list groq` shows what it serves today.
 
 ## The catalog is live
 
-The manifest lists no models. `/model list --refresh` (or `ultron models refresh groq`)
+The manifest lists no models. `/model list --refresh` (or `atlas models refresh groq`)
 asks Groq's `GET /models`, which says each model's window and reply ceiling; a model Groq
-marks inactive is not offered. Prices come from the catalog Ultron publishes, hydrated
+marks inactive is not offered. Prices come from the catalog Atlas publishes, hydrated
 from [models.dev](https://models.dev), so `/status` knows what a turn cost - and says
 *unknown*, never zero, for a model it has no price for.
 
@@ -64,7 +64,7 @@ part of the reply.
 The plugin also registers `groq/whisper`, a media reader that transcribes a voice note
 or a recording with Groq's Whisper (`whisper-large-v3-turbo` unless
 `transcription_model` says otherwise). It uses the same key as the provider, so once
-`ultron auth add groq` is done a voice note sent from Telegram is transcribed, whether or
+`atlas auth add groq` is done a voice note sent from Telegram is transcribed, whether or
 not you chat through Groq. Its priority is 40, ahead of `openai/whisper` at 50, because
 Groq charges less for the same model. `audio_reader: groq/whisper` pins it, and
 `audio_reader: openai/whisper` pins the other. The reference line on the message names
@@ -73,7 +73,7 @@ the reader that answered.
 ## What reaches Groq
 
 The conversation, the tool definitions, pictures for a model that takes them, and your
-key. Nothing else: no Ultron setting, no file you did not attach. A voice note reaches
+key. Nothing else: no Atlas setting, no file you did not attach. A voice note reaches
 Groq only when `groq/whisper` is the reader that transcribes it, and then only the
 audio and the `audio_language` hint - never the conversation.
 

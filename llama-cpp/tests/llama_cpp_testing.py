@@ -10,14 +10,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from ultron.sdk.tool_plugin import ToolSpec
+from atlas.sdk.tool_plugin import ToolSpec
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "ultron_plugin_llama_cpp", HERE.parent / "plugin.py"
+        "atlas_plugin_llama_cpp", HERE.parent / "plugin.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

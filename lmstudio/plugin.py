@@ -13,7 +13,7 @@ before the first request, reads the size it was loaded with, tells the session
 that size when it can, and refuses a request that would not fit rather than send
 one the server would have to cut or reject.
 
-Requires the `openai` package (`pip install openai`, or `pip install "ultron[openai]"`).
+Requires the `openai` package (`pip install openai`, or `pip install "atlas[openai]"`).
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ultron.sdk.openai_compat import OpenAICompatEmbedder, OpenAICompatProvider, check_base_url
-from ultron.sdk.plugin_entry import Plugin, PluginContext
-from ultron.sdk.provider import (
+from atlas.sdk.openai_compat import OpenAICompatEmbedder, OpenAICompatProvider, check_base_url
+from atlas.sdk.plugin_entry import Plugin, PluginContext
+from atlas.sdk.provider import (
     ModelEntry,
     Pricing,
     ThinkingLevel,
 )
-from ultron.sdk.runtime import ConfigError, ProviderError
+from atlas.sdk.runtime import ConfigError, ProviderError
 
 DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
 """Where LM Studio's server listens unless its Developer settings say otherwise."""
@@ -73,14 +73,14 @@ async def fetch_json(url: str, *, headers: Mapping[str, str] | None = None) -> M
     """One GET through the core's client. `allow_private` because the address is
     the operator's setting and LM Studio is on this machine; the URL was never
     the model's."""
-    from ultron.sdk.web import get
+    from atlas.sdk.web import get
 
     response = await get(
         url,
         allow_private=True,
         timeout=NATIVE_TIMEOUT,
         headers=dict(headers or {}),
-        user_agent="ultron-lmstudio",
+        user_agent="atlas-lmstudio",
         max_bytes=4_000_000,
     )
     return _decoded(response.status, response.body, url)
@@ -93,7 +93,7 @@ async def post_json(
     headers: Mapping[str, str] | None = None,
     timeout: float = NATIVE_TIMEOUT,
 ) -> Mapping[str, Any]:
-    from ultron.sdk.web import post
+    from atlas.sdk.web import post
 
     response = await post(
         url,
@@ -101,7 +101,7 @@ async def post_json(
         allow_private=True,
         timeout=timeout,
         headers=dict(headers or {}),
-        user_agent="ultron-lmstudio",
+        user_agent="atlas-lmstudio",
         max_bytes=4_000_000,
     )
     return _decoded(response.status, response.body, url)
@@ -380,7 +380,7 @@ class LMStudioProvider(OpenAICompatProvider):
                 "LM Studio has no chat model downloaded - get one in the app, or `lms get qwen3-8b`"
             )
         raise ConfigError(
-            "LM Studio has several models - set `model` (or ULTRON_MODEL) to one of: "
+            "LM Studio has several models - set `model` (or ATLAS_MODEL) to one of: "
             + ", ".join(sorted(keys))
         )
 
@@ -395,7 +395,7 @@ class LMStudioProvider(OpenAICompatProvider):
         if " 401 " in f" {message} " or "Unauthorized" in message:
             return ProviderError(
                 "LM Studio requires an API token - create one in the app's server settings and "
-                f"put it in ~/.ultron/.env as LM_API_TOKEN ({exc})"
+                f"put it in ~/.atlas/.env as LM_API_TOKEN ({exc})"
             )
         return None
 

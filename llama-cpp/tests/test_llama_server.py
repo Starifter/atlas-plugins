@@ -17,8 +17,8 @@ from typing import Any
 import pytest
 from llama_cpp_testing import FakeClient, LlamaCppEmbedder, plugin
 
-from ultron.sdk.plugin_entry import PluginContext
-from ultron.sdk.runtime import ProviderError
+from atlas.sdk.plugin_entry import PluginContext
+from atlas.sdk.runtime import ProviderError
 
 # -- the embedder's width ---------------------------------------------------------------
 
@@ -239,15 +239,15 @@ def test_register_with_a_server_model_owns_the_process(tmp_path: Path) -> None:
         providers=True,
     )
     plugin.LlamaCppPlugin().register(ctx)
-    from ultron.providers import provider_class
-    from ultron.providers.embedding import known_embedders
+    from atlas.providers import provider_class
+    from atlas.providers.embedding import known_embedders
 
     cls = provider_class("llama-cpp")
     assert cls is not None and cls.server is not None
     assert cls.base_url == "http://127.0.0.1:8090/v1"
     assert cls.server.spec.argv()[:3] == ["/opt/llama-server", "-hf", "ggml-org/Qwen3-8B-GGUF"]
     assert "-c" in cls.server.spec.argv()
-    assert cls.server.spec.log_dir == tmp_path / ".ultron" / "llama-cpp"
+    assert cls.server.spec.log_dir == tmp_path / ".atlas" / "llama-cpp"
     embedder = known_embedders()["llama-cpp"](client=FakeClient(), probe=lambda _: 0)
     assert embedder._server is not None
     assert embedder._server.spec.port == 8081

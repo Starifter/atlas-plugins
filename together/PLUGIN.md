@@ -2,7 +2,7 @@
 name: together
 description: The Together AI model provider - open models, hosted at Together.
 version: "1.0.0"
-requires_ultron_sdk: ">=1.23,<2"
+requires_atlas_sdk: ">=1.23,<2"
 categories: [provider, models]
 logo: logo.svg
 contracts:
@@ -24,12 +24,12 @@ Open models - DeepSeek, Qwen, Kimi, GLM, Llama, GPT-OSS - hosted at
 
 ```
 /plugins install together
-ultron auth add together              # a key from api.together.ai, or TOGETHER_API_KEY in ~/.ultron/.env
+atlas auth add together              # a key from api.together.ai, or TOGETHER_API_KEY in ~/.atlas/.env
 ```
 
 then `provider: together` and a `model` in `config.json`, or `--provider together --model`
 with an id as Together lists it (`deepseek-ai/DeepSeek-V4-Pro`, say). **There is no
-default model**; `ultron models list together` shows the chat models Together serves.
+default model**; `atlas models list together` shows the chat models Together serves.
 
 ## The catalog is live
 
@@ -42,7 +42,7 @@ how it lists models it serves only on dedicated hardware.
 
 Together can quietly shorten a request that would overflow a model's context. This
 plugin asks it not to (`context_length_exceeded_behavior: error`), so an overflow is an
-error Ultron hears and answers the way it answers any other - by compacting and trying
+error Atlas hears and answers the way it answers any other - by compacting and trying
 again - rather than a reply built on a conversation Together cut.
 
 ## Thinking

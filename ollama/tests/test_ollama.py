@@ -1,8 +1,8 @@
-"""The Ollama plugin, driven the way Ultron drives it: a fake `openai` client for
+"""The Ollama plugin, driven the way Atlas drives it: a fake `openai` client for
 the `/v1` requests, and the native `/api/*` endpoints answered from a table.
 
-Run from a checkout of Ultron (`uv run pytest path/to/ollama/tests`), which
-supplies pytest-asyncio in auto mode and the `ultron.sdk` the plugin imports.
+Run from a checkout of Atlas (`uv run pytest path/to/ollama/tests`), which
+supplies pytest-asyncio in auto mode and the `atlas.sdk` the plugin imports.
 """
 
 from __future__ import annotations
@@ -16,16 +16,16 @@ from typing import Any
 
 import pytest
 
-from ultron.sdk.plugin_entry import PluginContext
-from ultron.sdk.provider import ContextOverflowError, Message
-from ultron.sdk.runtime import ConfigError, CredentialError, ProviderError
-from ultron.sdk.tool_plugin import ToolSpec
+from atlas.sdk.plugin_entry import PluginContext
+from atlas.sdk.provider import ContextOverflowError, Message
+from atlas.sdk.runtime import ConfigError, CredentialError, ProviderError
+from atlas.sdk.tool_plugin import ToolSpec
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
-    spec = importlib.util.spec_from_file_location("ultron_plugin_ollama", HERE.parent / "plugin.py")
+    spec = importlib.util.spec_from_file_location("atlas_plugin_ollama", HERE.parent / "plugin.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -157,8 +157,8 @@ def test_register_installs_both_providers_and_an_embedder(server: Server) -> Non
         providers=True,
     )
     plugin.OllamaPlugin().register(ctx)
-    from ultron.providers import provider_class
-    from ultron.providers.embedding import known_embedders
+    from atlas.providers import provider_class
+    from atlas.providers.embedding import known_embedders
 
     local: Any = provider_class("ollama")
     assert local is not None and issubclass(local, OllamaProvider)

@@ -1,8 +1,8 @@
-"""The llama.cpp plugin, driven the way Ultron drives it: a fake client that
+"""The llama.cpp plugin, driven the way Atlas drives it: a fake client that
 records the request, and replies shaped the way `llama-server` shapes them.
 
-Run from a checkout of Ultron (`uv run pytest path/to/llama-cpp/tests`), which
-supplies pytest-asyncio in auto mode and the `ultron.sdk` the plugin imports.
+Run from a checkout of Atlas (`uv run pytest path/to/llama-cpp/tests`), which
+supplies pytest-asyncio in auto mode and the `atlas.sdk` the plugin imports.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 from llama_cpp_testing import SPEC, FakeClient, LlamaCppProvider, message, plugin
 
-from ultron.sdk.plugin_entry import PluginContext
-from ultron.sdk.provider import (
+from atlas.sdk.plugin_entry import PluginContext
+from atlas.sdk.provider import (
     ContextOverflowError,
     ImageBlock,
     Message,
@@ -24,7 +24,7 @@ from ultron.sdk.provider import (
     ToolResultBlock,
     ToolUseBlock,
 )
-from ultron.sdk.runtime import ConfigError, ProviderError
+from atlas.sdk.runtime import ConfigError, ProviderError
 
 
 @pytest.fixture
@@ -86,8 +86,8 @@ def test_register_binds_the_settings_and_installs_an_embedder() -> None:
         providers=True,
     )
     plugin.LlamaCppPlugin().register(ctx)
-    from ultron.providers import provider_class
-    from ultron.providers.embedding import known_embedders
+    from atlas.providers import provider_class
+    from atlas.providers.embedding import known_embedders
 
     cls = provider_class("llama-cpp")
     assert cls is not None and issubclass(cls, LlamaCppProvider)
@@ -146,7 +146,7 @@ async def test_the_request_carries_the_thinking_switch_both_ways() -> None:
 
 
 async def test_the_system_prompts_cache_marker_is_stripped() -> None:
-    from ultron.prompting import CACHE_BOUNDARY
+    from atlas.prompting import CACHE_BOUNDARY
 
     client = FakeClient(message(content="ok"))
     await LlamaCppProvider("m", client=client).complete(

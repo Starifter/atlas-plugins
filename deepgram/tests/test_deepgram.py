@@ -1,7 +1,7 @@
-"""The Deepgram plugin, driven the way Ultron drives it: a fake transport that
+"""The Deepgram plugin, driven the way Atlas drives it: a fake transport that
 records each request and answers the way Deepgram's API documents it.
 
-Run from a checkout of Ultron (`uv run pytest path/to/deepgram/tests`).
+Run from a checkout of Atlas (`uv run pytest path/to/deepgram/tests`).
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ from typing import Any
 
 import pytest
 
-from ultron.sdk.media import Reading
+from atlas.sdk.media import Reading
 
 HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "ultron_plugin_deepgram", HERE.parent / "plugin.py"
+        "atlas_plugin_deepgram", HERE.parent / "plugin.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
