@@ -37,6 +37,10 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 | `google-calendar` | Google Calendar: read it, change it with your yes (every change a confirm card), and reminders on the chat you last wrote from. Sign in with `atlas auth login google-calendar:google`, or read-only from a calendar's secret iCal address. |
 | `gmail` | Gmail over IMAP and SMTP with an app password, no Google Cloud project: search, read, draft, send with your yes, tidy, and a one-line notice for important mail. |
 | `google-drive` | Google Drive: find, read and download files; upload, create, organise and share them, every change a card, and a confirm card naming everyone whenever somebody new could see a file. Sign in with `atlas auth login google-drive:google`. |
+| `google-tasks` | Google Tasks after one Google sign-in: see your to-do lists; adding, finishing, moving and removing tasks each show a card you answer first. Needs SDK 1.34. |
+| `google-contacts` | Google Contacts after one Google sign-in: look people up by name, email or number, see upcoming birthdays; saving and changing contacts each show a card first. Never deletes. Needs SDK 1.34. |
+| `google-docs-sheets` | Editing inside Google Docs and Sheets, which `google-drive` leaves alone: read them, add to a Doc, replace a phrase, write cells, append rows. Each change shows a card first, with cell-by-cell before and after. Needs SDK 1.34. |
+| `google-maps` | Google Maps with your own `GOOGLE_MAPS_API_KEY`: travel time with traffic, when to leave, places and their hours, geocoding. Read-only. Needs SDK 1.34. |
 | `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 
 ## What "official" means
