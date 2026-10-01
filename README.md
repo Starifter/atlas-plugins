@@ -37,6 +37,7 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 | `google-calendar` | Google Calendar: read it, change it with your yes (every change a confirm card), and reminders on the chat you last wrote from. Sign in with `atlas auth login google-calendar:google`, or read-only from a calendar's secret iCal address. |
 | `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail, Yahoo, or any IMAP server you name: search, read, draft, send with your yes, tidy, and a one-line notice for new mail. Formerly `gmail`, whose setup it still reads. |
 | `microsoft` | Outlook.com, Hotmail and Microsoft 365 through Microsoft Graph, one sign-in: mail - search, read, draft, send with your yes, tidy, and a notice for new Focused mail - and the calendar, every change a card naming who will be emailed. Tools are `outlook_*`, so it sits beside `email` and `google-calendar`. |
+| `spotify` | Spotify through the Web API: what's playing, your devices, search and playlists; play, pause, skip, queue and move playback to any device with Spotify open (Premium only), and playlist changes - making or deleting one is a confirm card. Needs your own free Spotify developer app. Tools are `spotify_*`. |
 | `google-drive` | Google Drive: find, read and download files; upload, create, organise and share them, every change a card, and a confirm card naming everyone whenever somebody new could see a file. Sign in with `atlas auth login google-drive:google`. |
 | `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 
