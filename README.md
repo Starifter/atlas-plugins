@@ -34,6 +34,9 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 | `together` | A model provider for Together AI (`TOGETHER_API_KEY`): its hosted open models, priced from its listing. |
 | `fireworks` | A model provider for Fireworks AI (`FIREWORKS_API_KEY`): its hosted open models, reasoning carried through tool loops. Needs SDK 1.25. |
 | `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
+| `google-calendar` | Google Calendar: read it, change it with your yes (every change a confirm card), and reminders on the chat you last wrote from. Sign in with `atlas auth login google-calendar:google`, or read-only from a calendar's secret iCal address. |
+| `gmail` | Gmail over IMAP and SMTP with an app password, no Google Cloud project: search, read, draft, send with your yes, tidy, and a one-line notice for important mail. |
+| `google-drive` | Google Drive: find, read and download files; upload, create, organise and share them, every change a card, and a confirm card naming everyone whenever somebody new could see a file. Sign in with `atlas auth login google-drive:google`. |
 | `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 
 ## What "official" means
