@@ -193,7 +193,7 @@ def server_for(label: str, address: str, servers: Mapping[str, Any]) -> Server:
     if MICROSOFT.match(domain):
         raise CredentialError(
             f"{address} is a Microsoft address - Outlook.com and Microsoft 365 take no app "
-            "password over IMAP and need Microsoft's sign-in, which Atlas does not have yet"
+            "password over IMAP - use the microsoft plugin instead (/plugins install microsoft)"
         )
     raise CredentialError(
         f"Atlas does not know where {domain}'s mail is: set plugins_settings.email.servers."

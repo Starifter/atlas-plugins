@@ -36,6 +36,7 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 | `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
 | `google-calendar` | Google Calendar: read it, change it with your yes (every change a confirm card), and reminders on the chat you last wrote from. Sign in with `atlas auth login google-calendar:google`, or read-only from a calendar's secret iCal address. |
 | `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail, Yahoo, or any IMAP server you name: search, read, draft, send with your yes, tidy, and a one-line notice for new mail. Formerly `gmail`, whose setup it still reads. |
+| `microsoft` | Outlook.com, Hotmail and Microsoft 365 through Microsoft Graph, one sign-in: mail - search, read, draft, send with your yes, tidy, and a notice for new Focused mail - and the calendar, every change a card naming who will be emailed. Tools are `outlook_*`, so it sits beside `email` and `google-calendar`. |
 | `google-drive` | Google Drive: find, read and download files; upload, create, organise and share them, every change a card, and a confirm card naming everyone whenever somebody new could see a file. Sign in with `atlas auth login google-drive:google`. |
 | `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 

@@ -133,8 +133,9 @@ or, for a provider that is not one of the four, its servers:
 } } } }
 ```
 
-**Outlook, Hotmail and Microsoft 365 don't work yet.** Microsoft no longer accepts passwords
-over IMAP; those accounts need Microsoft's own sign-in, which Atlas does not have yet.
+**Outlook, Hotmail and Microsoft 365 use the `microsoft` plugin instead.** Microsoft no longer
+accepts passwords over IMAP; `/plugins install microsoft` signs in with Microsoft's own sign-in
+and brings your Outlook calendar too.
 
 **Google doesn't offer app passwords to** work or school accounts, accounts with Advanced
 Protection, or accounts whose second step is security keys only.
