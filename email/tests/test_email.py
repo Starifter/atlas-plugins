@@ -1,11 +1,13 @@
-"""The Gmail plugin (`docs/spec/gmail.md`), driven against a fake Gmail.
+"""The email plugin in Gmail mode (`docs/spec/email.md`), driven against a fake Gmail.
 
 `FakeImap` speaks the part of IMAP the plugin uses, the way `imaplib` hands it
 back - Gmail's `X-GM-RAW`, `X-GM-MSGID`, `X-GM-THRID` and `X-GM-LABELS`, UIDPLUS's
 `APPENDUID`, `MOVE` - and `FakeSmtp` records what it was sent. Neither reaches
-Google. The plugin's `IMAP4_SSL` and `SMTP_SSL` are replaced with them.
+Google. The plugin's `IMAP4_SSL` and `SMTP_SSL` are replaced with them. What both
+modes share - cards, attachments, links - is pinned here; `test_standard.py` is
+standard IMAP.
 
-Run from a checkout of Atlas (`uv run --project ../Atlas pytest gmail/tests`).
+Run from a checkout of Atlas (`uv run --project ../Atlas pytest email/tests`).
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ HERE = Path(__file__).resolve().parent
 
 
 def _load() -> Any:
-    spec = importlib.util.spec_from_file_location("atlas_plugin_gmail", HERE.parent / "plugin.py")
+    spec = importlib.util.spec_from_file_location("atlas_plugin_email", HERE.parent / "plugin.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -291,8 +293,10 @@ def gmail(monkeypatch: pytest.MonkeyPatch) -> Gmail:
     FakeSmtp.server = server
     monkeypatch.setattr(gm, "IMAP4_SSL", FakeImap)
     monkeypatch.setattr(gm, "SMTP_SSL", FakeSmtp)
-    monkeypatch.setenv("GMAIL_ADDRESS", ME)
-    monkeypatch.setenv("GMAIL_APP_PASSWORD", "abcd efgh ijkl mnop")  # as Google shows it
+    for old in ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
+        monkeypatch.delenv(old, raising=False)
+    monkeypatch.setenv("EMAIL_ADDRESS", ME)
+    monkeypatch.setenv("EMAIL_APP_PASSWORD", "abcd efgh ijkl mnop")  # as Google shows it
     return server
 
 
@@ -355,11 +359,11 @@ def sent_message(server: Gmail, index: int = -1) -> Any:
 async def test_nothing_is_reached_until_an_account_is_set_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("GMAIL_ADDRESS", raising=False)
-    monkeypatch.delenv("GMAIL_APP_PASSWORD", raising=False)
+    for name in ("EMAIL_ADDRESS", "EMAIL_APP_PASSWORD", "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
     _, made = tools(tmp_path)
     result = await made["email_search"].run()
-    assert result.is_error and "Gmail is not set up" in result.content
+    assert result.is_error and "Email is not set up" in result.content
 
 
 async def test_a_refused_password_says_what_to_do_and_never_shows_it(
