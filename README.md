@@ -40,6 +40,25 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 | `google-drive` | Google Drive: find, read and download files; upload, create, organise and share them, every change a card, and a confirm card naming everyone whenever somebody new could see a file. Sign in with `atlas auth login google-drive:google`. |
 | `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 
+## Connectors
+
+`connectors/` holds MCP servers described once, for `/mcp discover` and the MCP page's
+Discover tab: `/mcp install <name>` adds one to `config.json`, asks for any key it needs, and
+signs in when it signs people in (Atlas's `docs/spec/connectors.md`).
+
+| connector | what it reaches |
+|---|---|
+| `linear` | Linear issues and projects - signs in with OAuth. |
+| `notion` | Notion pages and databases - signs in with OAuth. |
+| `sentry` | Sentry issues and releases - signs in with OAuth. |
+| `atlassian` | Jira and Confluence Cloud - signs in with OAuth. |
+| `github` | GitHub's remote server - asks for a personal access token. |
+| `context7` | Current library documentation - no sign-in. |
+| `huggingface` | The Hugging Face Hub - no sign-in. |
+| `cloudflare-docs` | Cloudflare's developer docs - no sign-in. |
+| `memory` | The reference memory-graph server, run with `npx`. |
+| `brave-search` | Brave Search, run with `npx` - asks for `BRAVE_API_KEY`. |
+
 ## What "official" means
 
 Only that Atlas knows this repository's address. A plugin here goes through the same

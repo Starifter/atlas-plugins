@@ -24,8 +24,9 @@ from atlas.plugins.discovery import (
 )
 from atlas.sdk import SDK_VERSION
 
-SKIPPED = {".git", ".github", "scripts"}
-"""Directories that are the repository's and not a plugin's."""
+SKIPPED = {".git", ".github", "scripts", "connectors"}
+"""Directories that are the repository's and not a plugin's. `connectors/` is
+checked on its own, by `connector_problems`."""
 
 
 def problems(directory: Path) -> list[str]:
@@ -80,7 +81,36 @@ def main(argv: list[str]) -> int:
             print(f"    {line}")
         failed += bool(errors)
     print(f"\n{len(entries)} plugin(s), {failed} failed, SDK {SDK_VERSION}")
-    return 1 if failed else 0
+    broken = connector_problems(root)
+    return 1 if failed or broken else 0
+
+
+def connector_problems(root: Path) -> int:
+    """Every `connectors/<name>/CONNECTOR.md`, read the way `/mcp discover`
+    reads it (Atlas's `connectors.md`). Returns how many cannot be installed."""
+    from atlas.plugins.connectors import MANIFEST_FILENAME as CONNECTOR
+    from atlas.plugins.connectors import read_connector
+
+    directory = root / "connectors"
+    if not directory.is_dir():
+        return 0
+    broken = 0
+    entries = sorted(path for path in directory.iterdir() if path.is_dir())
+    for entry in entries:
+        manifest = entry / CONNECTOR
+        if not manifest.is_file():
+            error = f"no {CONNECTOR}"
+        else:
+            connector = read_connector(manifest)
+            error = connector.error
+            if not error and connector.name != entry.name:
+                error = f"its name is {connector.name!r}, not its directory's"
+        print(f"connectors/{entry.name:<13} {'ok' if not error else 'FAIL'}")
+        if error:
+            print(f"    {error}")
+        broken += bool(error)
+    print(f"{len(entries)} connector(s), {broken} failed")
+    return broken
 
 
 if __name__ == "__main__":
