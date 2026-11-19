@@ -1,8 +1,0 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#fff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
-  <!-- a llama: neck, head, ear, body -->
-  <path d="M176 448 V232 c0-40 24-64 56-64 h72 l40-56" />
-  <path d="M232 168 c-8-40 8-72 40-88" />
-  <path d="M336 448 V300 c0-24 16-44 40-44 h32" />
-  <path d="M176 380 h160" />
-  <circle cx="286" cy="150" r="10" fill="#fff" stroke="none" />
-</svg>
