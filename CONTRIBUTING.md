@@ -68,7 +68,7 @@ uv run --project ../Atlas pytest <name>/tests
 
 The script is the whole of what this marketplace promises about an entry. Tests are yours
 to add and welcome: put them in `<name>/tests/`, driving the plugin with a fake client the
-way `openrouter/tests/` does (asyncio in auto mode, from the `pyproject.toml` at the root).
+way `email/tests/` does (asyncio in auto mode, from the `pyproject.toml` at the root).
 `ruff check .` and `ruff format .` read Atlas's own settings from the same file, so a
 plugin reads like the code it plugs into.
 

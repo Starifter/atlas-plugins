@@ -21,18 +21,16 @@ where a plugin comes from and never where one runs from: forgetting this marketp
 
 ## What is here
 
+Hosted model providers are not here: Atlas's core carries them (OpenRouter, Groq, DeepSeek,
+xAI, Together, Fireworks and the rest of its provider catalog), so there is nothing to
+install. The local ones are, because each asks its server what it loaded.
+
 | plugin | what it adds |
 |---|---|
-| `openrouter` | A model provider: one `OPENROUTER_API_KEY`, every model OpenRouter routes to, with a live catalog of what each costs. |
 | `llama-cpp` | A model provider for a `llama-server` on this machine: GGUF models, no key, no bill, with an embedder for memory search. |
 | `ollama` | Two model providers: `ollama` for a local Ollama (no key, no bill, context checked against what Ollama loaded) and `ollama-cloud` for ollama.com with `OLLAMA_API_KEY`, plus an embedder. |
 | `lmstudio` | A model provider for LM Studio on this machine: loads the model at the context you choose, no key, no bill, with an embedder. |
-| `groq` | A model provider for Groq (`GROQ_API_KEY`): open models served fast, with `/think` per model family, and `groq/whisper` to transcribe voice notes on the same key. |
-| `deepseek` | A model provider for DeepSeek (`DEEPSEEK_API_KEY`), its thinking carried through tool loops the way DeepSeek requires. Needs SDK 1.25. |
-| `xai` | A model provider for xAI's Grok (`XAI_API_KEY`), priced from xAI's own listing, long-context rate included, and `xai/stt` to transcribe voice notes on the same key. |
 | `deepgram` | A media reader: voice notes and recordings transcribed by Deepgram Nova (`DEEPGRAM_API_KEY`). |
-| `together` | A model provider for Together AI (`TOGETHER_API_KEY`): its hosted open models, priced from its listing. |
-| `fireworks` | A model provider for Fireworks AI (`FIREWORKS_API_KEY`): its hosted open models, reasoning carried through tool loops. Needs SDK 1.25. |
 | `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
 | `google-calendar` | Google Calendar: read it, change it with your yes (every change a confirm card), and reminders on the chat you last wrote from. Sign in with `atlas auth login google-calendar:google`, or read-only from a calendar's secret iCal address. |
 | `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail, Yahoo, or any IMAP server you name: search, read, draft, send with your yes, tidy, and a one-line notice for new mail. Formerly `gmail`, whose setup it still reads. |
