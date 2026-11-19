@@ -3,6 +3,7 @@
 A plugin is one directory at the top of this repository. Its name is the directory's name
 and the `name:` in its `PLUGIN.md`; they have to agree, because the manifest's name is what
 `plugins_enabled` carries and the directory's name is what `/plugins install` looks up.
+Here, for a plugin called `dice` (an example, not one in this repository):
 
 ```
 dice/

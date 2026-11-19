@@ -421,12 +421,12 @@ async def test_gmail_and_outlook_addresses_say_where_to_go(fake: Fake, tmp_path:
     result = await tools(tmp_path)["caldav_calendar_list_events"].run(
         start="2026-10-01", end="2026-10-02"
     )
-    assert result.is_error and "google-calendar" in result.content
+    assert result.is_error and "Google address" in result.content
     fake.env.update({"EMAIL_ADDRESS_FAMILY": ME, "EMAIL_APP_PASSWORD_FAMILY": PASSWORD})
     made = tools(tmp_path, accounts=["personal", "family"])
     listing = await made["caldav_calendar_list_calendars"].run()
     assert (
-        "personal: not reachable here" in listing.content and "google-calendar" in listing.content
+        "personal: not reachable here" in listing.content and "Google address" in listing.content
     )
     assert "family: Home (default) · iCloud" in listing.content
     text = await listed(made)  # the Gmail account is skipped, the iCloud one read

@@ -3,7 +3,7 @@ name: microsoft
 description: Microsoft - Outlook.com, Hotmail and Microsoft 365. Mail and calendar - read, send and change with your yes, and hear about new Focused mail.
 categories: [email, calendar, productivity]
 logo: logo.svg
-version: "1.0.0"
+version: "1.0.1"
 requires_atlas_sdk: ">=1.34,<2"
 contracts:
   tools:
@@ -79,7 +79,7 @@ first, or exactly what Atlas can reach in your Microsoft account.
 
 **See also:** [`docs/spec/microsoft.md`](https://github.com/Starifter/atlas/blob/main/docs/spec/microsoft.md)
 is the specification and wins where they disagree. For Gmail, iCloud and other mail, use the
-`email` plugin; for Google Calendar, `google-calendar`. All three can be installed at once.
+`email` plugin; for iCloud and other CalDAV calendars, `caldav`. All three can be installed at once.
 
 ---
 

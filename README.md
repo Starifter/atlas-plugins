@@ -11,7 +11,7 @@ fetched until you ask:
 ```
 /plugins market refresh official      fetch or update the copy on this machine
 /plugins                              Discover tab: what it offers
-/plugins install dice                 copy one into ~/.atlas/plugins/ and enable it
+/plugins install email                copy one into ~/.atlas/plugins/ and enable it
 ```
 
 Installing is two things said out loud - a copy into `~/.atlas/plugins/<name>/`, then a
@@ -30,12 +30,9 @@ install. The local ones are, because each asks its server what it loaded.
 | `ollama` | Two model providers: `ollama` for a local Ollama (no key, no bill, context checked against what Ollama loaded) and `ollama-cloud` for ollama.com with `OLLAMA_API_KEY`, plus an embedder. |
 | `lmstudio` | A model provider for LM Studio on this machine: loads the model at the context you choose, no key, no bill, with an embedder. |
 | `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
-| `google-calendar` | Google Calendar: read it, change it with your yes (every change a confirm card), and reminders on the chat you last wrote from. Sign in with `atlas auth login google-calendar:google`, or read-only from a calendar's secret iCal address. |
 | `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail, Yahoo, or any IMAP server you name: search, read, draft, send with your yes, tidy, and a one-line notice for new mail. Formerly `gmail`, whose setup it still reads. |
-| `microsoft` | Outlook.com, Hotmail and Microsoft 365 through Microsoft Graph, one sign-in: mail - search, read, draft, send with your yes, tidy, and a notice for new Focused mail - and the calendar, every change a card naming who will be emailed. Tools are `outlook_*`, so it sits beside `email` and `google-calendar`. |
+| `microsoft` | Outlook.com, Hotmail and Microsoft 365 through Microsoft Graph, one sign-in: mail - search, read, draft, send with your yes, tidy, and a notice for new Focused mail - and the calendar, every change a card naming who will be emailed. Tools are `outlook_*`, so it sits beside `email` and `caldav`. |
 | `caldav` | iCloud Calendar - and Fastmail, Yahoo, Nextcloud or any CalDAV server - with the app password `email` already reads: list, find free time, and change with your yes, every change a card naming who the server will email. Tools are `caldav_calendar_*`; the password goes to the server's own domain and nowhere else. |
-| `google-drive` | Google Drive: find, read and download files; upload, create, organise and share them, every change a card, and a confirm card naming everyone whenever somebody new could see a file. Sign in with `atlas auth login google-drive:google`. |
-| `dice` | A `roll_dice` tool - the example a new plugin is copied from. |
 
 ## Connectors
 
@@ -82,5 +79,5 @@ repository reads it in place, which is how it is developed; `""` disconnects it.
 
 ## Adding a plugin
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: copy `dice/`, rename
-everything, make `scripts/validate.py` pass, open a pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: a directory with a `PLUGIN.md`
+and a `plugin.py`, laid out as it shows; make `scripts/validate.py` pass, open a pull request.

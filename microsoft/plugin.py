@@ -8,7 +8,7 @@ mail is gated and capped. Nothing is deleted for good.
 
 Mail is read and sent as MIME, so what `email` does with a message - the card,
 the attachments, the links, the quoting rules - is done here the same way. The
-tools are named `outlook_*` so they sit beside `email` and `google-calendar`.
+tools are named `outlook_*` so they sit beside `email` and `caldav`.
 
 The `new-mail` service tells the owner, in one line and with no model, when mail
 lands in Outlook's Focused inbox.

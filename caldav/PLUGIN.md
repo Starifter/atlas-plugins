@@ -3,7 +3,7 @@ name: caldav
 description: iCloud Calendar - and Fastmail, Yahoo, Nextcloud or any CalDAV calendar - with the app password you already gave the email plugin. Read it, find free time, and change it with your yes.
 categories: [calendar, productivity]
 logo: logo.svg
-version: "1.0.0"
+version: "1.0.1"
 requires_atlas_sdk: ">=1.34,<2"
 contracts:
   tools:
@@ -52,8 +52,8 @@ Yahoo, Nextcloud or other CalDAV calendar - or you want to know why a change ask
 or exactly what Atlas sends where.
 
 **See also:** [`docs/spec/caldav.md`](https://github.com/Starifter/atlas/blob/main/docs/spec/caldav.md)
-is the specification and wins where they disagree. For Google Calendar use `google-calendar`;
-for Outlook and Microsoft 365, `microsoft`. All three can be installed at once.
+is the specification and wins where they disagree. For Outlook and Microsoft 365, use
+`microsoft`; both can be installed at once. Google Calendar is not reachable from here.
 
 ---
 
@@ -106,7 +106,7 @@ needs one line saying where the calendars are:
 The address must be `https://` - your password would otherwise cross the network in the clear.
 
 **Gmail and Outlook addresses are skipped**, with a note: Google's calendar takes no app
-password (use `google-calendar`), and Microsoft's needs Microsoft's sign-in (use `microsoft`).
+password, and Microsoft's needs Microsoft's sign-in (use `microsoft`).
 So if your email accounts mix providers, this plugin reads the iCloud ones and leaves the rest.
 
 **Several accounts** are the `email` plugin's labels - copy its `accounts` line here:
@@ -193,8 +193,7 @@ What you ask Atlas about an event goes to the model you chose, as everything you
 
 ## Not yet
 
-- **Reminders on your phone** from Atlas, like `google-calendar` sends. Your Calendar app
-  already reminds you.
+- **Reminders on your phone** from Atlas. Your Calendar app already reminds you.
 - **Contacts** over CardDAV.
 
 ## Troubleshooting

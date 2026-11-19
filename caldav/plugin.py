@@ -1,7 +1,7 @@
 """CalDAV: iCloud, Fastmail, Yahoo or any CalDAV calendar (`docs/spec/caldav.md`).
 
-Eight tools, the same shapes as `google-calendar`'s, named `caldav_calendar_*` so
-they sit beside it and `microsoft`. Every tool is `trusted_only` - offered only in
+Eight tools, the same shapes as the former `google-calendar` plugin's, named
+`caldav_calendar_*` so they sit beside `microsoft`'s. Every tool is `trusted_only` - offered only in
 a session an owner holds - and `untrusted`, because an event's title is whatever
 the invite's sender wrote. Reading is free; every change is a card a person
 answers in every mode (`Subject.confirm`), naming who the server will email.
@@ -13,7 +13,8 @@ every address the server answers with - is checked against the server's domain
 first (G2).
 
 The server is spoken to in plain WebDAV through `atlas.sdk.web.request`, and
-repeats are expanded here with `google-calendar`'s iCalendar reader.
+repeats are expanded here with an iCalendar reader first written for the former
+`google-calendar` plugin.
 """
 
 from __future__ import annotations
@@ -140,7 +141,7 @@ def server_for(label: str, address: str, servers: Mapping[str, Any]) -> Server:
     if domain in GOOGLE:
         raise CredentialError(
             f"{address} is a Google address - Google's calendar takes no app password over "
-            "CalDAV; use the google-calendar plugin for it (/plugins install google-calendar)"
+            "CalDAV, so this plugin cannot reach it"
         )
     if MICROSOFT.match(domain):
         raise CredentialError(
