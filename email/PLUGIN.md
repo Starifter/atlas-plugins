@@ -4,7 +4,7 @@ formerly: gmail
 description: Email - Gmail, iCloud, Fastmail, Yahoo or any IMAP account. Search, read, draft, send with your yes, tidy the inbox, and hear about new mail.
 categories: [email, productivity]
 logo: logo.svg
-version: "2.1.0"
+version: "2.1.1"
 requires_atlas_sdk: ">=1.34,<2"
 contracts:
   tools:
@@ -142,9 +142,8 @@ or, for a provider that is not one of the four, its servers:
 } } } }
 ```
 
-**Outlook, Hotmail and Microsoft 365 use the `microsoft` plugin instead.** Microsoft no longer
-accepts passwords over IMAP; `/plugins install microsoft` signs in with Microsoft's own sign-in
-and brings your Outlook calendar too.
+**Outlook, Hotmail and Microsoft 365 can't be reached.** Microsoft no longer accepts passwords
+over IMAP, so the plugin refuses those addresses before it connects.
 
 **Google doesn't offer app passwords to** work or school accounts, accounts with Advanced
 Protection, or accounts whose second step is security keys only.

@@ -31,8 +31,6 @@ install. The local ones are, because each asks its server what it loaded.
 | `lmstudio` | A model provider for LM Studio on this machine: loads the model at the context you choose, no key, no bill, with an embedder. |
 | `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
 | `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail, Yahoo, or any IMAP server you name: search, read, draft, send with your yes, tidy, and a one-line notice for new mail. Formerly `gmail`, whose setup it still reads. |
-| `microsoft` | Outlook.com, Hotmail and Microsoft 365 through Microsoft Graph, one sign-in: mail - search, read, draft, send with your yes, tidy, and a notice for new Focused mail - and the calendar, every change a card naming who will be emailed. Tools are `outlook_*`, so it sits beside `email` and `caldav`. |
-| `caldav` | iCloud Calendar - and Fastmail, Yahoo, Nextcloud or any CalDAV server - with the app password `email` already reads: list, find free time, and change with your yes, every change a card naming who the server will email. Tools are `caldav_calendar_*`; the password goes to the server's own domain and nowhere else. |
 
 ## Connectors
 
