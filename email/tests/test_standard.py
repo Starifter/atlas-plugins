@@ -91,6 +91,7 @@ class Server:
         self.expunged: list[int] = []
         self.sent: list[tuple[str, list[str], bytes]] = []
         self.smtp: list[tuple[str, int, bool]] = []
+        self.logins: list[tuple[str, str]] = []
 
     def add(self, folder: str, raw: bytes, *flags: str) -> Stored:
         return self.folders[folder].add(raw, set(flags))
@@ -181,6 +182,7 @@ class FakeImap:
         return self.server.capabilities
 
     def login(self, user: str, password: str) -> tuple[str, list[bytes]]:
+        self.server.logins.append(("imap", user))
         if password != self.server.password:
             raise imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Authentication failed.")
         return "OK", [b"logged in"]
@@ -313,6 +315,7 @@ class FakeSmtp:
 
     def login(self, user: str, password: str) -> None:
         assert self.started, "a password over a connection without TLS"
+        self.server.logins.append(("smtp", user))
         if password != self.server.password:
             raise SMTPAuthenticationError(535, b"Authentication failed")
 
@@ -652,6 +655,79 @@ async def test_icloud_sends_over_starttls(server: Server, tmp_path: Path) -> Non
     )
     assert not result.is_error, result.content
     assert server.smtp == [("smtp.mail.me.com", 587, True)]
+
+
+# -- R4.14: a display name, a login, and folders the person chose ------------------------------
+
+
+async def test_a_display_name_and_a_login_are_the_persons_to_set(
+    server: Server, tmp_path: Path
+) -> None:
+    made = tools(tmp_path, names={"personal": "Zoë Lee"}, logins={"Personal": "zoe"})
+    subject, sent = await carded(made["email_send"], to=["sam@example.com"], subject="x", body="y")
+
+    assert not sent.is_error, sent.content
+    assert subject.summary.startswith(f"Send from Zoë Lee <{ME}>\n")
+    out = email.message_from_bytes(server.sent[-1][2], policy=email.policy.default)
+    assert out["From"].addresses[0].display_name == "Zoë Lee"
+    assert out["From"].addresses[0].addr_spec == ME
+    assert server.sent[-1][0] == ME  # the envelope sender is the address, never the name
+    assert server.logins == [("smtp", "zoe"), ("imap", "zoe")]
+
+    plain = tools(tmp_path)
+    subject, _ = await carded(plain["email_send"], to=["sam@example.com"], subject="x", body="y")
+    assert subject.summary.startswith(f"Send from {ME}\n")
+    assert email.message_from_bytes(server.sent[-1][2])["From"] == ME
+    assert server.logins[-2:] == [("smtp", ME), ("imap", ME)]
+
+
+@pytest.mark.parametrize(
+    ("settings", "said"),
+    [
+        ({"names": {"personal": "Me\r\nBcc: spy@example.com"}}, "names.personal is one line"),
+        ({"names": {"personal": "x" * 101}}, "at most 100"),
+        ({"names": {"personal": 7}}, "names.personal is the display name"),
+        ({"logins": {"personal": "me @icloud.com"}}, "logins.personal is one word"),
+        ({"folders": {"personal": {"outbox": "Out"}}}, "folders.personal.outbox is not a folder"),
+        ({"folders": {"personal": {"sent": ""}}}, "folders.personal.sent is a folder's name"),
+        ({"folders": "Archive"}, "plugins_settings.email.folders is a table"),
+        (
+            {"servers": {"personal": "gmail"}, "folders": {"personal": {"sent": "Sent"}}},
+            "Gmail's folders are Gmail's own",
+        ),
+    ],
+)
+async def test_what_an_account_says_about_itself_is_checked_before_any_server(
+    server: Server, tmp_path: Path, settings: dict[str, Any], said: str
+) -> None:
+    result = await tools(tmp_path, **settings)["email_search"].run()
+    assert result.is_error and said in result.content, result.content
+    assert server.hosts == []  # nothing was reached
+
+
+async def test_chosen_folders_win_over_the_servers_flags(server: Server, tmp_path: Path) -> None:
+    news = server.add("INBOX", mail("Shop <news@shop.example>", "Sale"))
+    made = tools(tmp_path, folders={"personal": {"Archive": "family"}})
+
+    _, archived = await carded(made["email_organise"], action="archive", query="from:shop")
+    assert not archived.is_error, archived.content
+    assert (
+        server.where(b"Subject: Sale") == ["Family"]
+        and news not in server.folders["INBOX"].messages
+    )
+    # The folder the server marked Archive is an ordinary one now; Family is special.
+    assert (await made["email_labels"].run()).content == "personal: Archive"
+
+    server.add("INBOX", mail())
+    missing = tools(tmp_path, folders={"personal": {"trash": "Bin"}})
+    refused = await missing["email_organise"].run(action="trash", query="from:sam")
+    assert refused.is_error, refused.content
+    assert "folders.personal.trash names 'Bin', which this account does not have" in (
+        refused.content
+    )
+    assert server.where(b"Dinner Friday?") == ["INBOX"]  # nothing moved, never a guess
+    _, archived = await carded(missing["email_organise"], action="archive", query="from:sam")
+    assert not archived.is_error  # the other roles are still found as before
 
 
 # -- R7.2 in standard mode ----------------------------------------------------------------------

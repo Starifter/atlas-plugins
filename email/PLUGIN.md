@@ -4,7 +4,7 @@ formerly: gmail
 description: Email - Gmail, iCloud, Fastmail, Yahoo or any IMAP account. Search, read, draft, send with your yes, tidy the inbox, and hear about new mail.
 categories: [email, productivity]
 logo: logo.svg
-version: "2.0.0"
+version: "2.1.0"
 requires_atlas_sdk: ">=1.34,<2"
 contracts:
   tools:
@@ -32,6 +32,15 @@ config_schema:
   servers:
     type: dict
     description: Label to a preset (gmail, icloud, fastmail, yahoo) or {"imap" "host:993", "smtp" "host:465"}, for an address whose provider Atlas cannot tell from its domain.
+  names:
+    type: dict
+    description: Label to the display name on mail sent from that account - {"personal" "Sam Lee"}. Without one, mail goes from the bare address.
+  logins:
+    type: dict
+    description: Label to the IMAP and SMTP login, for a server whose login is not the address. The app password stays in .env.
+  folders:
+    type: dict
+    description: Label to the folders to use, by role (drafts, sent, trash, junk, archive), for an IMAP server whose own markings Atlas would get wrong. Not for Gmail.
   notify:
     type: str
     default: important
@@ -279,6 +288,9 @@ All optional, under `plugins_settings.email`:
 | `password_env` | `EMAIL_APP_PASSWORD` | The variable holding its app password. |
 | `accounts` | `["personal"]` | Account labels (above). |
 | `servers` | none | Per label, a preset (`gmail`, `icloud`, `fastmail`, `yahoo`) or `{"imap": "host:port", "smtp": "host:port"}`. Needed only when the address's domain does not say. |
+| `names` | none | Per label, the display name on mail you send - `{"personal": "Sam Lee"}` sends as `Sam Lee <you@icloud.com>`. |
+| `logins` | the address | Per label, the login, for a server whose login is not your address. |
+| `folders` | found | Per label, which folder is which - `{"work": {"sent": "Sent Items", "archive": "Old"}}` - by the roles `drafts`, `sent`, `trash`, `junk` and `archive`. Not for Gmail. |
 | `notify` | `important` | `important`, `primary`, `all`, or `off`. |
 | `poll_minutes` | `2` | How often new mail is checked for. |
 | `max_results` | `20` | The most messages one search returns (at most 100). |
@@ -286,6 +298,38 @@ All optional, under `plugins_settings.email`:
 | `attachment_max_mb` | `25` | The largest attachment Atlas fetches. |
 | `sends_per_hour` | `20` | Sends per account per hour before Atlas refuses. |
 | `attachments_max` | `10` | Files one message may carry. |
+
+### Your name, your login, your folders
+
+Mail goes from your bare address unless you give the account a name:
+
+```jsonc
+{ "plugins_settings": { "email": { "names": { "personal": "Sam Lee" } } } }
+```
+
+The card then says `Send from Sam Lee <you@icloud.com>`, and so does the mail.
+
+A server that logs you in as something other than your address - your own mail server, often -
+takes a login per account, beside its `servers` line. The app password stays in `.env`:
+
+```jsonc
+{ "plugins_settings": { "email": {
+  "servers": { "work": { "imap": "mail.example.com:993", "smtp": "mail.example.com:465" } },
+  "logins": { "work": "sam" }
+} } }
+```
+
+Atlas finds Drafts, Sent, Trash, Junk and Archive by the markings your server gives them, then
+by the names providers use. Where it gets one wrong - or you file sent mail somewhere of your
+own - name it:
+
+```jsonc
+{ "plugins_settings": { "email": { "folders": { "work": { "sent": "Sent Items" } } } } }
+```
+
+A folder named there that your server does not have is said when it is needed - "folders.work.sent
+names 'Sent Items', which this account does not have" - and nothing is filed or moved somewhere
+else instead. Gmail's folders are Gmail's own, so a Gmail account with `folders` is refused.
 
 ## What reaches your provider
 

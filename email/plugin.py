@@ -217,11 +217,88 @@ def _host_port(value: Any, port: int, where: str) -> tuple[str, int]:
 # -- accounts --------------------------------------------------------------------
 
 
+FOLDER_ROLES = {
+    "drafts": "\\Drafts",
+    "sent": "\\Sent",
+    "trash": "\\Trash",
+    "junk": "\\Junk",
+    "archive": "\\Archive",
+}
+"""R4.14: the folders `folders.<label>` may name, and the special-use flag each stands for."""
+
+
+class Identity(NamedTuple):
+    """R4.14: what the person says about an account beyond its address - all optional."""
+
+    name: str = ""
+    """The display name on mail sent from it."""
+    login: str = ""
+    """The IMAP and SMTP login, when it is not the address."""
+    folders: tuple[tuple[str, str], ...] = ()
+    """(special-use flag, folder name) pairs chosen over what the server's flags say."""
+
+
+def identity_for(label: str, settings: Mapping[str, Any], gmail: bool) -> Identity:
+    """`names`, `logins` and `folders` for one label, checked: anything that could put a
+    second header in a message, or a folder role there is none of, is refused by name."""
+
+    def entry(key: str) -> Any:
+        table = settings.get(key) or {}
+        if not isinstance(table, Mapping):
+            raise CredentialError(f"plugins_settings.email.{key} is a table of label to value")
+        return {str(k).strip().lower(): v for k, v in table.items()}.get(label)
+
+    name = entry("names")
+    if name is not None and not isinstance(name, str):
+        raise CredentialError(f"names.{label} is the display name, as text")
+    if name and any(ord(c) < 32 or ord(c) == 127 for c in name):
+        raise CredentialError(f"names.{label} is one line of text")
+    name = " ".join((name or "").split())
+    if len(name) > 100:
+        raise CredentialError(f"names.{label} is at most 100 characters")
+    login = entry("logins")
+    if login is not None and not isinstance(login, str):
+        raise CredentialError(f"logins.{label} is the login, as text")
+    login = (login or "").strip()
+    if login and (len(login) > 254 or re.search(r"[\s\x00-\x1f\x7f]", login)):
+        raise CredentialError(f"logins.{label} is one word, with no spaces")
+    folders = entry("folders")
+    chosen: list[tuple[str, str]] = []
+    if folders:
+        if gmail:
+            raise CredentialError(
+                f"folders.{label} is for an account on standard IMAP - Gmail's folders are "
+                "Gmail's own; remove it"
+            )
+        if not isinstance(folders, Mapping):
+            raise CredentialError(
+                f"folders.{label} is a table of role to folder: {', '.join(FOLDER_ROLES)}"
+            )
+        for role, folder in folders.items():
+            flag = FOLDER_ROLES.get(str(role).strip().lower())
+            if flag is None:
+                raise CredentialError(
+                    f"folders.{label}.{role} is not a folder role - one of "
+                    f"{', '.join(FOLDER_ROLES)}"
+                )
+            if not isinstance(folder, str) or not folder.strip():
+                raise CredentialError(f"folders.{label}.{role} is a folder's name")
+            chosen.append((flag, folder.strip()))
+    return Identity(name, login, tuple(chosen))
+
+
 class Account:
     """One mailbox: its label, address, app password and servers, and its kept connection."""
 
     def __init__(
-        self, label: str, address: str, password: str, server: Server | None, problem: str = ""
+        self,
+        label: str,
+        address: str,
+        password: str,
+        server: Server | None,
+        problem: str = "",
+        *,
+        identity: Identity | None = None,
     ) -> None:
         self.label = label
         self.address = address
@@ -229,6 +306,8 @@ class Account:
         self.server = server
         self.problem = problem
         """Why this account cannot be reached at all (R4.2), said by every tool that tries."""
+        self.identity = identity or Identity()
+        """R4.14: the name on sent mail, the login, and the folders the person chose."""
         self.mode: Mode = GmailMode(self) if server and server.gmail else StandardMode(self)
         self._conn: Any = None
         self._lock = threading.Lock()
@@ -240,6 +319,17 @@ class Account:
     def provider(self) -> str:
         return self.server.name if self.server else "the mail server"
 
+    @property
+    def login(self) -> str:
+        """R4.14: who the servers are logged in to as - the address, unless settings say."""
+        return self.identity.login or self.address
+
+    @property
+    def sender(self) -> str:
+        """`Name <address>` with a display name (R4.14), else the address: the card's line."""
+        name = self.identity.name
+        return f"{name} <{self.address}>" if name else self.address
+
     # -- IMAP --------------------------------------------------------------------
 
     def _connect(self) -> Any:
@@ -248,7 +338,7 @@ class Account:
         host, port = self.server.imap
         conn = IMAP4_SSL(host, port, ssl_context=ssl.create_default_context(), timeout=TIMEOUT)
         try:
-            conn.login(self.address, self.password)
+            conn.login(self.login, self.password)
         except imaplib.IMAP4.error as exc:
             with contextlib.suppress(Exception):
                 conn.logout()
@@ -316,7 +406,7 @@ class Account:
                         )
                     smtp.starttls(context=context)
                     smtp.ehlo()
-                smtp.login(self.address, self.password)
+                smtp.login(self.login, self.password)
                 refused = smtp.sendmail(sender, list(recipients), data)
         except SMTPAuthenticationError:
             raise CredentialError(
@@ -364,22 +454,27 @@ class Accounts:
             ).replace(" ", "")
             if not address or not password:
                 continue
+            identity = Identity()
             try:
                 server: Server | None = server_for(label, address, servers)
+                identity = identity_for(label, self.settings, gmail=server.gmail)
                 problem = ""
             except CredentialError as exc:
                 server, problem = None, str(exc)
             kept = self._kept.get(label)
-            if kept is None or (kept.address, kept.password, kept.server, kept.problem) != (
-                address,
-                password,
-                server,
-                problem,
-            ):
+            if kept is None or (
+                kept.address,
+                kept.password,
+                kept.server,
+                kept.problem,
+                kept.identity,
+            ) != (address, password, server, problem, identity):
                 if kept is not None:
                     with kept._lock:
                         kept.close_unlocked()
-                kept = self._kept[label] = Account(label, address, password, server, problem)
+                kept = self._kept[label] = Account(
+                    label, address, password, server, problem, identity=identity
+                )
             found.append(kept)
         return found
 
@@ -811,15 +906,31 @@ def imap_date(day: datetime.date) -> str:
 class Folders:
     """An account's folders, and which of them are the special ones (R4.10)."""
 
-    def __init__(self, listed: Sequence[tuple[set[str], str]]) -> None:
+    def __init__(
+        self,
+        listed: Sequence[tuple[set[str], str]],
+        chosen: Sequence[tuple[str, str]] = (),
+        label: str = "",
+    ) -> None:
         self.names = [name for flags, name in listed if "\\noselect" not in flags]
         self.special: dict[str, str] = {}
+        self.missing: dict[str, str] = {}
+        """R4.14: a role whose chosen folder the server does not have - said when needed."""
+        for flag, wanted in chosen:
+            role = next(r for r, f in FOLDER_ROLES.items() if f == flag)
+            found = next((n for n in self.names if n.lower() == wanted.lower()), "")
+            if found:
+                self.special[flag] = found
+            else:
+                self.missing[flag] = f"folders.{label}.{role} names {wanted!r}"
         for flag in SPECIAL_NAMES:
+            if flag in self.special or flag in self.missing:
+                continue
             marked = [name for flags, name in listed if flag.lower() in flags]
             if marked:
                 self.special[flag] = marked[0]
         for flag, names in SPECIAL_NAMES.items():
-            if flag in self.special:
+            if flag in self.special or flag in self.missing:
                 continue
             for name in self.names:
                 if name.lower().rpartition("/")[2].rpartition(".")[2] in names:
@@ -836,6 +947,11 @@ class Folders:
         raise ToolError(f"no folder {wanted!r} - this account has: {mine}")
 
     def need(self, flag: str, what: str) -> str:
+        if flag in self.missing:
+            mine = ", ".join(self.own()) or "none of its own"
+            raise ToolError(
+                f"{self.missing[flag]}, which this account does not have - it has: {mine}"
+            )
         found = self.special.get(flag)
         if not found:
             raise ToolError(f"this account has no {what} folder")
@@ -858,7 +974,11 @@ class StandardMode(Mode):
 
     def folders(self, conn: Any) -> Folders:
         if self._folders is None:
-            self._folders = Folders(_listed(_check(conn.list(), "listing folders", self.who)))
+            self._folders = Folders(
+                _listed(_check(conn.list(), "listing folders", self.who)),
+                self.account.identity.folders,
+                self.account.label,
+            )
         return self._folders
 
     # -- ids ---------------------------------------------------------------------------
@@ -1748,7 +1868,10 @@ class Outgoing:
         if self.raw:
             return self.raw
         message = EmailMessage(policy=email.policy.SMTP)
-        message["From"] = self.account.address
+        name = self.account.identity.name
+        message["From"] = (
+            email.utils.formataddr((name, self.account.address)) if name else self.account.address
+        )
         if self.to:
             message["To"] = ", ".join(self.to)
         if self.cc:
@@ -1780,7 +1903,7 @@ class Outgoing:
         return message.as_bytes()
 
     def card(self, verb: str) -> str:
-        lines = [f"{verb} from {self.account.address}"]
+        lines = [f"{verb} from {self.account.sender}"]
         for name, people in (("To", self.to), ("Cc", self.cc), ("Bcc", self.bcc)):
             if people:
                 lines.append(f"{name}: {', '.join(people)}")
