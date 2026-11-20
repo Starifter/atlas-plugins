@@ -1,31 +1,26 @@
-"""The email plugin in Gmail mode (`docs/spec/email.md`), driven against a fake Gmail.
+"""The email plugin against an in-memory IMAP server and a recording SMTP sender
+(`docs/spec/email.md` §14). The aioimaplib wrapper's parsing is pinned on its own
+against the lines the library hands back.
 
-`FakeImap` speaks the part of IMAP the plugin uses, the way `imaplib` hands it
-back - Gmail's `X-GM-RAW`, `X-GM-MSGID`, `X-GM-THRID` and `X-GM-LABELS`, UIDPLUS's
-`APPENDUID`, `MOVE` - and `FakeSmtp` records what it was sent. Neither reaches
-Google. The plugin's `IMAP4_SSL` and `SMTP_SSL` are replaced with them. What both
-modes share - cards, attachments, links - is pinned here; `test_standard.py` is
-standard IMAP.
-
-Run from a checkout of Atlas (`uv run --project ../Atlas pytest email/tests`).
+Run from a checkout of Atlas (`uv run pytest path/to/email/tests`).
 """
 
 from __future__ import annotations
 
-import email
-import email.policy
-import hashlib
-import imaplib
+import asyncio
 import importlib.util
-import re
+import json
 import sys
+from collections.abc import Awaitable, Callable
 from email.message import EmailMessage
 from pathlib import Path
-from smtplib import SMTPAuthenticationError
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from atlas.plugins import read_manifest
+from atlas.tools.authority import run_started
+from atlas.tools.profiles import ToolProfile
 
 HERE = Path(__file__).resolve().parent
 
@@ -39,947 +34,1045 @@ def _load() -> Any:
     return module
 
 
-gm = _load()
+plugin = _load()
 
-ME = "me@gmail.com"
-PASSWORD = "abcdefghijklmnop"
-
-
-# -- the fake Gmail ---------------------------------------------------------------------
+MARKER = "ATLAS_UNTRUSTED"
 
 
-class Stored:
-    def __init__(self, uid: int, raw: bytes, **extra: Any) -> None:
-        self.uid = uid
-        self.msgid = 0x18C0000000000000 + uid
-        self.thrid = extra.pop("thrid", self.msgid)
-        self.raw = raw
-        self.labels: set[str] = set(extra.pop("labels", {"\\Inbox"}))
-        self.flags: set[str] = set(extra.pop("flags", set()))
-        self.category = extra.pop("category", "primary")
-        self.trashed = False
-
-    @property
-    def parsed(self) -> Any:
-        return email.message_from_bytes(self.raw, policy=email.policy.default)
-
-
-class Gmail:
-    """One account's server state."""
-
-    def __init__(self) -> None:
-        self.messages: list[Stored] = []
-        self.password = PASSWORD
-        self.sent: list[tuple[str, list[str], bytes]] = []
-        self.logins = 0
-
-    def add(self, raw: bytes, **extra: Any) -> Stored:
-        stored = Stored(len(self.messages) + 1, raw, **extra)
-        self.messages.append(stored)
-        return stored
-
-    def in_folder(self, folder: str) -> list[Stored]:
-        if folder == "INBOX":
-            return [m for m in self.messages if "\\Inbox" in m.labels and not m.trashed]
-        if folder == '"[Gmail]/Drafts"':
-            return [m for m in self.messages if "\\Draft" in m.flags and not m.trashed]
-        if folder == '"[Gmail]/Trash"':
-            return [m for m in self.messages if m.trashed]
-        return [m for m in self.messages if not m.trashed]
-
-
-def matches(message: Stored, query: str) -> bool:
-    """A few of Gmail's search operators - enough for what the tests ask."""
-    parsed = message.parsed
-    body = parsed.get_body(preferencelist=("plain", "html"))
-    text = f"{parsed.get('Subject', '')} {body.get_content() if body else ''}".lower()
-    for token in query.split():
-        key, _, value = token.partition(":")
-        value = value.lower()
-        if key == "in" and value == "inbox":
-            ok = "\\Inbox" in message.labels
-        elif key == "is" and value == "unread":
-            ok = "\\Seen" not in message.flags
-        elif key == "is" and value == "important":
-            ok = "\\Important" in message.labels
-        elif key == "category":
-            ok = message.category == value
-        elif key == "from":
-            ok = value in str(parsed.get("From", "")).lower()
-        elif key == "label":
-            ok = any(label.lower() == value for label in message.labels)
-        elif key == "has" and value == "attachment":
-            ok = any(part.get_filename() for part in parsed.walk())
-        else:
-            ok = token.lower() in text
-        if not ok:
-            return False
-    return True
-
-
-class FakeImap:
-    server: Gmail
-
-    def __init__(self, host: str, port: int, **kwargs: Any) -> None:
-        assert (host, port) == ("imap.gmail.com", 993)
-        self.folder = ""
-        self.literal: bytes | None = None
-
-    def login(self, user: str, password: str) -> tuple[str, list[bytes]]:
-        if password != self.server.password:
-            raise imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Invalid credentials (Failure)")
-        self.server.logins += 1
-        return "OK", [b"logged in"]
-
-    def logout(self) -> tuple[str, list[bytes]]:
-        return "BYE", [b""]
-
-    def select(self, folder: str, readonly: bool = False) -> tuple[str, list[bytes]]:
-        self.folder = folder
-        return "OK", [str(len(self.server.in_folder(folder))).encode()]
-
-    def response(self, name: str) -> tuple[str, list[bytes]]:
-        if name == "UIDVALIDITY":
-            return name, [b"7"]
-        if name == "UIDNEXT":
-            return name, [str(len(self.server.messages) + 1).encode()]
-        return name, [None]  # type: ignore[list-item]
-
-    def append(self, folder: str, flags: str, date: Any, data: bytes) -> tuple[str, list[bytes]]:
-        assert folder == '"[Gmail]/Drafts"' and "\\Draft" in flags
-        stored = self.server.add(data, labels=set(), flags={"\\Draft", "\\Seen"})
-        return "OK", [b"[APPENDUID 7 %d] (Success)" % stored.uid]
-
-    def uid(self, command: str, *args: str) -> tuple[str, list[Any]]:
-        here = self.server.in_folder(self.folder)
-        if command == "SEARCH":
-            found = list(here)
-            items = list(args)
-            while items:
-                key = items.pop(0)
-                if key == "X-GM-RAW":
-                    query = items.pop(0).strip('"').replace('\\"', '"')
-                    found = [m for m in found if matches(m, query)]
-                elif key == "X-GM-MSGID":
-                    wanted = int(items.pop(0))
-                    found = [m for m in found if m.msgid == wanted]
-                elif key == "X-GM-THRID":
-                    wanted = int(items.pop(0))
-                    found = [m for m in found if m.thrid == wanted]
-                elif key == "UID":
-                    low = int(items.pop(0).split(":")[0])
-                    newer = [m for m in found if m.uid >= low]
-                    # Gmail's quirk: `n:*` with nothing at or above n answers the last one.
-                    found = newer or ([max(here, key=lambda m: m.uid)] if here else [])
-            return "OK", [" ".join(str(m.uid) for m in found).encode()]
-        if command == "FETCH":
-            uids = {int(u) for u in args[0].split(",")}
-            parts = args[1]
-            out: list[Any] = []
-            for message in sorted(
-                (m for m in self.server.messages if m.uid in uids), key=lambda m: m.uid
-            ):
-                labels = " ".join(
-                    f'"{label}"' if " " in label else label for label in sorted(message.labels)
-                )
-                flags = " ".join(sorted(message.flags))
-                meta = (
-                    f"{message.uid} (UID {message.uid} X-GM-MSGID {message.msgid} "
-                    f"X-GM-THRID {message.thrid} X-GM-LABELS ({labels}) FLAGS ({flags}) "
-                    f"RFC822.SIZE {len(message.raw)}"
-                )
-                if "BODY.PEEK[]" in parts:
-                    body = message.raw
-                elif "HEADER.FIELDS" in parts:
-                    names = re.search(r"HEADER\.FIELDS \(([^)]*)\)", parts).group(1).split()  # type: ignore[union-attr]
-                    head = message.raw.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
-                    body = (
-                        b"\r\n".join(
-                            line for line in head if line.split(b":")[0].upper().decode() in names
-                        )
-                        + b"\r\n\r\n"
-                    )
-                elif "HEADER" in parts:
-                    body = message.raw.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"
-                else:
-                    out.append((meta + ")").encode())
-                    continue
-                out.append(((meta + f" BODY[] {{{len(body)}}}").encode(), body))
-                out.append(b")")
-            return "OK", out
-        if command == "STORE":
-            uids = {int(u) for u in args[0].split(",")}
-            operation, value = args[1], args[2].strip("()").strip('"')
-            for message in self.server.messages:
-                if message.uid not in uids:
-                    continue
-                target = message.labels if "X-GM-LABELS" in operation else message.flags
-                (target.add if operation.startswith("+") else target.discard)(value)
-            return "OK", [b""]
-        if command == "MOVE":
-            uids = {int(u) for u in args[0].split(",")}
-            assert args[1] == '"[Gmail]/Trash"'
-            for message in self.server.messages:
-                if message.uid in uids:
-                    message.trashed = True
-            return "OK", [b""]
-        raise AssertionError(f"unexpected UID {command}")
-
-    def list(self) -> tuple[str, list[bytes]]:
-        return "OK", [
-            b'(\\HasNoChildren) "/" "INBOX"',
-            b'(\\HasNoChildren) "/" "School"',
-            b'(\\HasNoChildren) "/" "Receipts"',
-            b'(\\HasChildren \\Noselect) "/" "[Gmail]"',
-            b'(\\All \\HasNoChildren) "/" "[Gmail]/All Mail"',
-        ]
-
-
-class FakeSmtp:
-    server: Gmail
-
-    def __init__(self, host: str, port: int, **kwargs: Any) -> None:
-        assert (host, port) == ("smtp.gmail.com", 465)
-
-    def __enter__(self) -> FakeSmtp:
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        return None
-
-    def login(self, user: str, password: str) -> None:
-        if password != self.server.password:
-            raise SMTPAuthenticationError(535, b"Username and Password not accepted")
-
-    def sendmail(self, sender: str, recipients: list[str], data: bytes) -> dict[str, Any]:
-        self.server.sent.append((sender, list(recipients), data))
-        return {}
+# -- a server ---------------------------------------------------------------------------
 
 
 def mail(
-    sender: str = "Sam Lee <sam@example.com>",
-    subject: str = "Dinner Friday?",
-    body: str = "Are you free Friday at 7?",
-    *,
-    to: str = ME,
-    cc: str = "",
-    html: str = "",
-    files: tuple[tuple[str, bytes, str], ...] = (),
-    headers: dict[str, str] | None = None,
+    sender: str = "Billing <billing@example.net>",
+    subject: str = "Invoice 2291 due Friday",
+    body: str = "Hi, please pay invoice 2291.",
+    to: str = "me@example.com",
+    message_id: str = "<a1@example.net>",
+    references: str = "",
+    attach: tuple[str, bytes, str] | None = None,
 ) -> bytes:
-    message = EmailMessage(policy=email.policy.SMTP)
+    message = EmailMessage()
     message["From"] = sender
     message["To"] = to
-    if cc:
-        message["Cc"] = cc
     message["Subject"] = subject
-    message["Date"] = "Thu, 01 Oct 2026 18:02:00 +1000"
-    message["Message-ID"] = f"<{abs(hash((sender, subject)))}@example.com>"
-    for name, value in (headers or {}).items():
-        message[name] = value
+    message["Date"] = "Tue, 21 Oct 2026 10:13:58 +0100"
+    message["Message-ID"] = message_id
+    if references:
+        message["References"] = references
+        message["In-Reply-To"] = references.split()[-1]
     message.set_content(body)
-    if html:
-        message.add_alternative(html, subtype="html")
-    for name, data, kind in files:
-        main, _, sub = kind.partition("/")
+    if attach:
+        name, data, media_type = attach
+        main, _, sub = media_type.partition("/")
         message.add_attachment(data, maintype=main, subtype=sub, filename=name)
     return message.as_bytes()
 
 
+class Box:
+    def __init__(self, validity: int = 1714, flags: tuple[str, ...] = ()) -> None:
+        self.validity = validity
+        self.flags = flags
+        self.messages: dict[int, tuple[set[str], bytes]] = {}
+        self.next = 1
+
+    def add(self, data: bytes, *flags: str) -> int:
+        uid = self.next
+        self.messages[uid] = (set(flags), data)
+        self.next += 1
+        return uid
+
+
+class Server:
+    """One account's mailboxes, and every command a client sent."""
+
+    def __init__(self, *, idle: bool = True, move: bool = True) -> None:
+        self.boxes: dict[str, Box] = {
+            "INBOX": Box(),
+            "Sent": Box(flags=("\\Sent",)),
+            "Drafts": Box(flags=("\\Drafts",)),
+            "Trash": Box(flags=("\\Trash",)),
+            "Archive": Box(flags=("\\Archive",)),
+        }
+        self.capabilities = {"IDLE"} if idle else set()
+        if move:
+            self.capabilities.add("MOVE")
+        self.log: list[tuple[Any, ...]] = []
+        self.pushed = asyncio.Event()
+        self.refuse_login = False
+        self.opened = 0
+
+
+class FakeImap:
+    def __init__(self, server: Server) -> None:
+        self.server = server
+        self.box: Box | None = None
+
+    async def open(self) -> FakeImap:
+        if self.server.refuse_login:
+            raise plugin.LoginRefused("refused")
+        self.server.opened += 1
+        return self
+
+    def has(self, capability: str) -> bool:
+        return capability in self.server.capabilities
+
+    async def close(self) -> None:
+        pass
+
+    async def folders(self) -> list[Any]:
+        return [plugin.Folder(name, box.flags) for name, box in self.server.boxes.items()]
+
+    async def status(self, folder: str) -> tuple[int, int]:
+        box = self.server.boxes[folder]
+        unseen = sum(1 for flags, _ in box.messages.values() if "\\Seen" not in flags)
+        return len(box.messages), unseen
+
+    async def select(self, folder: str, *, write: bool = False) -> Any:
+        if folder not in self.server.boxes:
+            raise plugin.MailError(f"no folder {folder!r}")
+        self.box = self.server.boxes[folder]
+        self.server.log.append(("select", folder, write))
+        return plugin.Selected(self.box.validity, self.box.next)
+
+    async def search(self, criteria: list[str]) -> list[int]:
+        assert self.box is not None
+        self.server.log.append(("search", *criteria))
+        found = []
+        for uid, (flags, data) in self.box.messages.items():
+            if self._matches(uid, flags, data, list(criteria)):
+                found.append(uid)
+        return found
+
+    def _matches(self, uid: int, flags: set[str], data: bytes, criteria: list[str]) -> bool:
+        message = plugin.parse_message(data)
+        i = 0
+        while i < len(criteria):
+            word = criteria[i]
+            if word == "ALL":
+                i += 1
+            elif word == "UNSEEN":
+                if "\\Seen" in flags:
+                    return False
+                i += 1
+            elif word == "UID":
+                low = int(criteria[i + 1].split(":")[0])
+                if uid < low:
+                    return False
+                i += 2
+            elif word in ("FROM", "SUBJECT", "TEXT", "TO"):
+                needle = json.loads(criteria[i + 1]).lower()
+                hay = (
+                    data.decode("utf-8", "replace")
+                    if word == "TEXT"
+                    else plugin.header(message, word.title())
+                ).lower()
+                if needle not in hay:
+                    return False
+                i += 2
+            elif word == "HEADER":
+                name, value = criteria[i + 1], json.loads(criteria[i + 2])
+                if value not in plugin.header(message, name):
+                    return False
+                i += 3
+            else:
+                i += 1
+        return True
+
+    async def fetch(self, uids: list[int], parts: str) -> list[Any]:
+        assert self.box is not None
+        self.server.log.append(("fetch", tuple(uids), parts))
+        out = []
+        for uid in uids:
+            if uid in self.box.messages:
+                flags, data = self.box.messages[uid]
+                out.append(
+                    plugin.Fetched(
+                        uid, tuple(sorted(flags)), len(data), "21-Oct-2026 09:14:00 +0000", data
+                    )
+                )
+        return out
+
+    async def append(self, folder: str, data: bytes, flags: str) -> None:
+        self.server.log.append(("append", folder, flags))
+        self.server.boxes[folder].add(data, *flags.strip("()").split())
+
+    async def move(self, uids: list[int], folder: str) -> None:
+        assert self.box is not None
+        if "MOVE" not in self.server.capabilities:
+            raise plugin.MailError("no MOVE")
+        self.server.log.append(("move", tuple(uids), folder))
+        for uid in uids:
+            flags, data = self.box.messages.pop(uid)
+            self.server.boxes[folder].add(data, *flags)
+
+    async def store(self, uids: list[int], operation: str, flag: str) -> None:
+        assert self.box is not None
+        self.server.log.append(("store", tuple(uids), operation, flag))
+        for uid in uids:
+            flags = self.box.messages[uid][0]
+            (flags.add if operation == "+FLAGS" else flags.discard)(flag)
+
+    async def idle(self, timeout: float) -> None:
+        self.server.log.append(("idle",))
+        await self.server.pushed.wait()
+        self.server.pushed.clear()
+
+
+def connector(server: Server) -> Callable[[Any], Awaitable[FakeImap]]:
+    async def connect(account: Any) -> FakeImap:
+        return await FakeImap(server).open()
+
+    return connect
+
+
+class Outbox:
+    def __init__(self) -> None:
+        self.sent: list[EmailMessage] = []
+
+    async def __call__(self, account: Any, message: EmailMessage) -> None:
+        self.sent.append(message)
+
+
+ACCOUNT = {
+    "address": "me@example.com",
+    "imap_host": "imap.example.com",
+    "smtp_host": "smtp.example.com",
+    "watch": ["INBOX"],
+}
+
+
+def settings(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {"accounts": {"work": dict(ACCOUNT)}, "on_new": "Summarise it."}
+    base.update(overrides)
+    return base
+
+
 @pytest.fixture
-def gmail(monkeypatch: pytest.MonkeyPatch) -> Gmail:
-    server = Gmail()
-    FakeImap.server = server
-    FakeSmtp.server = server
-    monkeypatch.setattr(gm, "IMAP4_SSL", FakeImap)
-    monkeypatch.setattr(gm, "SMTP_SSL", FakeSmtp)
-    for old in ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
-        monkeypatch.delenv(old, raising=False)
-    monkeypatch.setenv("EMAIL_ADDRESS", ME)
-    monkeypatch.setenv("EMAIL_APP_PASSWORD", "abcd efgh ijkl mnop")  # as Google shows it
-    return server
+def server() -> Server:
+    s = Server()
+    s.boxes["INBOX"].add(mail())
+    return s
 
 
-class Media:
-    """The media store, as far as the tools use it."""
+@pytest.fixture
+def outbox() -> Outbox:
+    return Outbox()
+
+
+@pytest.fixture(autouse=True)
+def password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATLAS_EMAIL_PASSWORD_WORK", "app-password-123")
+
+
+def tool(server: Server, outbox: Outbox, tmp_path: Path, **kw: Any) -> Any:
+    return plugin.EmailTool(
+        workspace=tmp_path,
+        settings=kw.pop("settings", None) or settings(),
+        connector=connector(server),
+        sender=outbox,
+        **kw,
+    )
+
+
+async def as_(starter: str | None, call: Callable[[], Awaitable[Any]]) -> Any:
+    """Run `call` on a task whose run was started by `starter`, as the lane does."""
+
+    async def inside() -> Any:
+        if starter is not None:
+            run_started(starter)
+        return await call()
+
+    return await asyncio.create_task(inside())
+
+
+# -- the manifest ----------------------------------------------------------------------
+
+
+def test_the_manifest_declares_what_register_installs() -> None:
+    manifest = read_manifest(HERE.parent / "PLUGIN.md", source="dir")
+    assert manifest.name == "email"
+    assert manifest.wakes is True
+    assert manifest.contracts()["tools"] == ("email",)
+    assert manifest.contracts()["services"] == ("watcher",)
+    assert manifest.contracts()["logins"] == ()
+    assert not manifest.warnings
+
+
+def test_it_installs_through_atlas_own_path(tmp_path: Path) -> None:
+    """`register` against a real context, contracts checked by the core."""
+    from atlas.plugins.install import install_one, uninstall_one
+    from atlas.plugins.services import known_services
+    from atlas.tools.registry import ToolRegistry
+
+    manifest = read_manifest(HERE.parent / "PLUGIN.md", source="dir")
+    tools = ToolRegistry()
+    provision = install_one(
+        plugin.EmailPlugin(), manifest, workspace=tmp_path, tools=tools, settings=settings()
+    )
+    try:
+        assert provision.ok, provision.error
+        assert provision.tools == ("email",) and provision.services == ("email:watcher",)
+        assert provision.logins == ()
+        assert "email" in tools
+        assert "email:watcher" in known_services()
+    finally:
+        uninstall_one(provision, tools=tools)
+    assert "email:watcher" not in known_services()
+
+
+# -- E2, R7.6, R7.7: the envelope --------------------------------------------------------
+
+
+async def test_message_text_is_always_inside_the_envelope(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    result = await tool(server, outbox, tmp_path).run("read", uid=1)
+    assert result.wrapped and not result.is_error
+    outside, _, inside = result.content.partition(f"<<<{MARKER}")
+    assert "work INBOX uid 1 (uidvalidity 1714)" in outside
+    for written in ("Billing", "Invoice 2291", "please pay", "billing@example.net"):
+        assert written not in outside, written
+        assert written in inside, written
+
+    found = await tool(server, outbox, tmp_path).run("search", subject="invoice")
+    outside, _, inside = found.content.partition(f"<<<{MARKER}")
+    assert "1 match" in outside and "uid 1" in outside
+    assert "Invoice 2291" not in outside and "Invoice 2291" in inside
+
+
+async def test_own_address_gets_no_exception(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    server.boxes["INBOX"].add(mail(sender="Me <me@example.com>", subject="note to self"))
+    result = await tool(server, outbox, tmp_path).run("read", uid=2)
+    outside, _, inside = result.content.partition(f"<<<{MARKER}")
+    assert "note to self" in inside and "note to self" not in outside
+
+
+async def test_an_attachment_name_stays_inside(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    server.boxes["INBOX"].add(mail(attach=("ignore-previous.txt", b"do this now", "text/plain")))
+    read = await tool(server, outbox, tmp_path).run("read", uid=2)
+    outside, _, inside = read.content.partition(f"<<<{MARKER}")
+    assert "1 attachment" in outside and "ignore-previous" not in outside
+    assert "ignore-previous.txt" in inside
+    text = await tool(server, outbox, tmp_path).run("attachment", uid=2, index=1)
+    outside, _, inside = text.content.partition(f"<<<{MARKER}")
+    assert "attachment [1], text/plain" in outside
+    assert "do this now" in inside and "ignore-previous" not in outside
+
+
+async def test_a_pdf_attachment_is_read_and_enveloped(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    server.boxes["INBOX"].add(mail(attach=("invoice.pdf", b"%PDF-1.4\n", "application/pdf")))
+    asked: list[dict[str, Any]] = []
+
+    class Read:
+        ok, text, reader, failure = True, "Total due: 40 EUR", "pypdf", ""
+
+    async def understand(data: bytes, **kw: Any) -> Any:
+        asked.append({"data": data, **kw})
+        return Read()
+
+    result = await tool(server, outbox, tmp_path, understand=understand).run(
+        "attachment", uid=2, index=1
+    )
+    assert asked and asked[0]["media_type"] == "application/pdf"
+    outside, _, inside = result.content.partition(f"<<<{MARKER}")
+    assert "read by pypdf" in outside
+    assert "Total due: 40 EUR" in inside and "invoice.pdf" in inside
+
+
+async def test_nothing_is_written_to_the_workspace(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    server.boxes["INBOX"].add(mail(attach=("a.txt", b"x", "text/plain")))
+    email = tool(server, outbox, tmp_path)
+    await email.run("read", uid=2)
+    await email.run("attachment", uid=2, index=1)
+    await email.run("search")
+    assert list(tmp_path.iterdir()) == []
+
+
+# -- E3, R8.4, R8.4a: who may send -------------------------------------------------------
+
+
+async def test_send_is_refused_in_a_woken_run_in_yolo(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path)
+    arguments = {"action": "send", "to": ["a@x.com"], "subject": "hi", "body": "b"}
+    # Refused before any card: nobody is asked about a send that will not run.
+    assert await as_("system", lambda: asyncio.sleep(0, email.subject(arguments))) is None
+    result = await as_("system", lambda: email.run(**arguments))
+    assert result.is_error and "not started by a person" in result.content
+    assert outbox.sent == []
+
+
+async def test_send_is_refused_in_a_cron_run_and_a_sub_agent(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path)
+    for starter in ("system", "sub", "hook", "untrusted", None):
+        for action, extra in (
+            ("send", {"to": ["a@x.com"]}),
+            ("reply", {"uid": 1, "to": ["billing@example.net"]}),
+            ("forward", {"uid": 1, "to": ["a@x.com"]}),
+        ):
+            result = await as_(starter, lambda a=action, e=extra: email.run(a, **e))
+            assert result.is_error and "not started by a person" in result.content
+    assert outbox.sent == []
+
+
+async def test_draft_is_allowed_in_a_woken_run(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path)
+    result = await as_(
+        "system",
+        lambda: email.run("draft", to=["billing@example.net"], body="Paid.", reply_to_uid=1),
+    )
+    assert not result.is_error and "Drafts" in result.content
+    [(flags, data)] = server.boxes["Drafts"].messages.values()
+    draft = plugin.parse_message(data)
+    assert "\\Draft" in flags
+    assert plugin.header(draft, "In-Reply-To") == "<a1@example.net>"
+    assert plugin.header(draft, "Subject") == "Re: Invoice 2291 due Friday"
+    assert outbox.sent == []
+
+
+async def test_organizing_is_allowed_in_a_woken_run(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    second = server.boxes["INBOX"].add(mail(subject="two"))
+    email = tool(server, outbox, tmp_path)
+    marked = await as_("system", lambda: email.run("mark", uid=1, seen=True))
+    assert not marked.is_error and "\\Seen" in server.boxes["INBOX"].messages[1][0]
+    # Still decided by the mode: a card, reviewable.
+    subject = await as_("system", lambda: asyncio.sleep(0, email.subject({"action": "move"})))
+    assert subject is not None and subject.reviewable
+    archived = await as_("system", lambda: email.run("archive", uid=second))
+    assert not archived.is_error and len(server.boxes["Archive"].messages) == 1
+
+
+async def test_reply_and_forward_are_refused_in_a_woken_run(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path)
+    for action in ("reply", "forward"):
+        result = await as_("system", lambda a=action: email.run(a, uid=1, to=["x@y.com"]))
+        assert "not started by a person" in result.content
+    assert outbox.sent == []
+
+
+async def test_send_is_confirmed_in_a_persons_run(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path)
+    arguments = {
+        "action": "reply",
+        "uid": 1,
+        "to": ["billing@example.net"],
+        "body": "Paid today.",
+        "all": True,
+    }
+    subject = await as_("person", lambda: asyncio.sleep(0, email.subject(arguments)))
+    # Every send is a person's yes, in every mode (`confirm`), never the reviewer's.
+    assert subject is not None and subject.confirm and not subject.reviewable
+    result = await as_("person", lambda: email.run(**arguments))
+    assert not result.is_error, result.content
+    [sent] = outbox.sent
+    assert plugin.header(sent, "In-Reply-To") == "<a1@example.net>"
+    assert plugin.header(sent, "Subject") == "Re: Invoice 2291 due Friday"
+    assert "me@example.com" not in plugin.header(sent, "Cc"), "never cc ourselves on reply-all"
+    # A copy is filed in Sent for a server that keeps none itself.
+    assert len(server.boxes["Sent"].messages) == 1
+
+
+async def test_send_card_names_every_recipient(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path)
+    arguments = {
+        "action": "send",
+        "to": ["a@x.com", "b@y.com"],
+        "cc": ["c@z.com"],
+        "bcc": ["d@w.com"],
+        "subject": "Re: invoice",
+        "attach": ["report.pdf"],
+    }
+    subject = await as_("person", lambda: asyncio.sleep(0, email.subject(arguments)))
+    for named in (
+        "work",
+        "a@x.com",
+        "b@y.com",
+        "c@z.com",
+        "bcc d@w.com",
+        "Re: invoice",
+        "1 attachment",
+    ):
+        assert named in subject.summary, named
+
+
+async def test_gmail_keeps_its_own_sent_copy(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    gmail = dict(ACCOUNT, smtp_host="smtp.gmail.com")
+    email = tool(server, outbox, tmp_path, settings=settings(accounts={"work": gmail}))
+    result = await as_("person", lambda: email.run("send", to=["a@x.com"], body="b"))
+    assert not result.is_error and len(outbox.sent) == 1
+    assert server.boxes["Sent"].messages == {}
+
+
+async def test_a_failed_sent_copy_never_reports_the_send_as_failed(
+    server: Server, outbox: Outbox, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken(self: Any, folder: str, data: bytes, flags: str) -> None:
+        raise OSError("connection reset")
+
+    monkeypatch.setattr(FakeImap, "append", broken)
+    email = tool(server, outbox, tmp_path)
+    result = await as_("person", lambda: email.run("send", to=["a@x.com"], body="b"))
+    assert not result.is_error, "an error here is a model sending it twice"
+    assert len(outbox.sent) == 1 and "the mail was sent" in result.content
+
+
+# -- E4: nothing is destroyed ------------------------------------------------------------
+
+
+async def test_trash_moves_and_never_expunges(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    result = await tool(server, outbox, tmp_path).run("trash", uid=1)
+    assert not result.is_error
+    assert 1 not in server.boxes["INBOX"].messages and len(server.boxes["Trash"].messages) == 1
+    assert not any(entry[0] == "store" and "Deleted" in str(entry) for entry in server.log)
+    assert "EXPUNGE" not in str(server.log).upper()
+
+
+async def test_without_move_a_server_is_told_no_rather_than_expunged(
+    outbox: Outbox, tmp_path: Path
+) -> None:
+    server = Server(move=False)
+    server.boxes["INBOX"].add(mail())
+    result = await tool(server, outbox, tmp_path).run("trash", uid=1)
+    assert result.is_error and "MOVE" in result.content
+    assert 1 in server.boxes["INBOX"].messages
+
+
+# -- E5: owner lanes, and the owner's schedule ----------------------------------------------
+
+
+def test_tool_is_absent_from_a_group_lane(tmp_path: Path) -> None:
+    """`trusted_only` is the whole mechanism: the core removes such a tool from
+    every lane no owner holds, and pins that in `tool-profiles.md` R3.8."""
+    email = plugin.EmailTool(workspace=tmp_path, settings=settings())
+    assert email.trusted_only is True and email.gated is True
+
+
+def test_tool_is_offered_in_a_cron_run_and_no_other_lane_no_owner_holds(tmp_path: Path) -> None:
+    """E5, R3.8a: `scheduled` lets a cron job have the tool; a group, a hook
+    session and a stranger's DM still do not. Sending stays E3's."""
+    email = plugin.EmailTool(workspace=tmp_path, settings=settings())
+    assert email.scheduled is True
+    assert ToolProfile(kind="cron", untrusted="a scheduled run").hidden("email", email) == ""
+    for kind in ("group", "hook", "direct"):
+        assert ToolProfile(kind=kind, untrusted="no owner").hidden("email", email), kind
+
+
+# -- R6.1, R7.1: correctness against the server -------------------------------------------
+
+
+async def test_uidvalidity_change_refuses_the_call(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    result = await tool(server, outbox, tmp_path).run("read", uid=1, uidvalidity=99)
+    assert result.is_error and "renumbered" in result.content
+
+
+def test_search_quotes_every_value() -> None:
+    criteria = plugin.search_criteria(
+        {"from": 'a" OR ALL "', "subject": "back\\slash", "since": "2026-10-01", "unseen": True}
+    )
+    assert criteria == [
+        "FROM",
+        '"a\\" OR ALL \\""',
+        "SUBJECT",
+        '"back\\\\slash"',
+        "SINCE",
+        "1-Oct-2026",
+        "UNSEEN",
+    ]
+    with pytest.raises(plugin.MailError):
+        plugin.search_criteria({"text": "x\r\nA1 DELETE INBOX"})
+    assert plugin.search_criteria({}) == ["ALL"]
+
+
+def test_a_fetch_is_parsed_whatever_order_the_server_answers_in() -> None:
+    raw = mail()
+    lines = [
+        b"1 FETCH (UID 4412 FLAGS (\\Seen) RFC822.SIZE 1820 "
+        b'INTERNALDATE "21-Oct-2026 09:14:00 +0000" BODY[] {120}',
+        bytearray(raw),
+        b")",
+        b"2 FETCH (BODY[] {120}",
+        bytearray(raw),
+        b' UID 4413 FLAGS () INTERNALDATE "21-Oct-2026 10:00:00 +0000")',
+        b"Success",
+    ]
+    first, second = plugin.parse_fetch(lines)
+    assert (first.uid, first.flags, first.size) == (4412, ("\\Seen",), 1820)
+    assert first.data == raw
+    assert (second.uid, second.flags, second.data) == (4413, (), raw)
+
+
+def test_folders_and_select_are_parsed() -> None:
+    folders = plugin.parse_list(
+        [b'(\\HasNoChildren \\Sent) "/" "Sent Items"', b'(\\HasNoChildren) "/" INBOX', b"Done"]
+    )
+    assert folders[0] == plugin.Folder("Sent Items", ("\\HasNoChildren", "\\Sent"))
+    assert folders[1].name == "INBOX"
+    selected = plugin.parse_select(
+        [b"OK [UIDVALIDITY 1714] UIDs valid", b"OK [UIDNEXT 4414] Predicted next UID"]
+    )
+    assert selected == plugin.Selected(1714, 4414)
+    assert plugin.parse_search([b"4411 4412 4413", b"Search completed"]) == [4411, 4412, 4413]
+
+
+class Client:
+    """Stands in for `aioimaplib.IMAP4_SSL`: the calls the wrapper makes, and
+    the `Response(result, lines)` shapes the library answers with."""
 
     def __init__(self) -> None:
-        self.put_calls: list[tuple[bytes, str]] = []
-        self.held: dict[str, bytes] = {}
+        from collections import namedtuple
 
-    def put(self, data: bytes, *, source: str) -> Any:
-        self.put_calls.append((data, source))
-        return SimpleNamespace(source=source, sha256=hashlib.sha256(data).hexdigest())
+        self.Response = namedtuple("Response", "result lines")
+        self.calls: list[tuple[Any, ...]] = []
+        # The library's own state, kept as it keeps it: SELECT moves it to
+        # SELECTED, EXAMINE (a plain command there) does not, and a command
+        # outside its states is refused before it is sent.
+        self.protocol = type(
+            "P", (), {"capabilities": {"IMAP4REV1", "MOVE", "IDLE"}, "state": "AUTH"}
+        )()
 
-    def get(self, block: Any) -> bytes | None:
-        return self.held.get(block.sha256)
+    def has_capability(self, capability: str) -> bool:
+        return capability in self.protocol.capabilities
 
+    async def examine(self, mailbox: str) -> Any:
+        self.calls.append(("examine", mailbox))
+        return self.Response("OK", [b"OK [UIDVALIDITY 9] x", b"OK [UIDNEXT 12] y"])
 
-class Context:
-    """A `PluginContext`, as far as the tools use it."""
+    async def select(self, mailbox: str) -> Any:
+        self.calls.append(("select", mailbox))
+        self.protocol.state = "SELECTED"
+        return self.Response("OK", [b"OK [UIDVALIDITY 9] x"])
 
-    def __init__(self, workspace: Path, **settings: Any) -> None:
-        self.workspace = workspace
-        self.settings = settings
-        self.media = Media()
-        self.web_policy: Any = SimpleNamespace(allow_private=False, hosts=None, max_redirects=5)
-        self.sent_here: list[Any] = []
-        self.audited: list[tuple[str, str, dict[str, Any]]] = []
+    def _selected(self, command: str) -> None:
+        import aioimaplib
 
-    def session_media(self) -> tuple[Any, ...]:
-        return tuple(self.sent_here)
+        if self.protocol.state != "SELECTED":
+            raise aioimaplib.Abort(f"command {command} illegal in state {self.protocol.state}")
 
-    def audit(self, event: str, detail: str = "", **kwargs: Any) -> None:
-        self.audited.append((event, detail, dict(kwargs.get("arguments") or {})))
+    async def uid_search(self, *criteria: str) -> Any:
+        self._selected("SEARCH")
+        self.calls.append(("uid_search", *criteria))
+        return self.Response("OK", [b"3 5 8", b"SEARCH completed"])
 
+    async def uid(self, command: str, *args: str) -> Any:
+        self._selected("UID")
+        self.calls.append(("uid", command, *args))
+        return self.Response("OK", [b"Done"])
 
-def tools(tmp_path: Path, **settings: Any) -> tuple[Context, dict[str, Any]]:
-    ctx = Context(tmp_path, **settings)
-    shared = gm.Mail(ctx)
-    made = {
-        cls.name: cls(shared)
-        for cls in (gm.Search, gm.Read, gm.Attachment, gm.Labels, gm.Draft, gm.Send, gm.Organise)
-    }
-    return ctx, made
-
-
-async def carded(tool: Any, **arguments: Any) -> tuple[Any, Any]:
-    """What the executor does: the card, then - the person having said yes - the run."""
-    subject = await tool.subject(arguments)
-    return subject, await tool.run(**arguments)
-
-
-def sent_message(server: Gmail, index: int = -1) -> Any:
-    return email.message_from_bytes(server.sent[index][2], policy=email.policy.default)
+    async def append(self, data: bytes, mailbox: str, flags: str) -> Any:
+        self.calls.append(("append", mailbox, flags))
+        return self.Response("OK", [b"APPEND completed"])
 
 
-# -- G1, R5.2, R5.3 ------------------------------------------------------------------------
-
-
-async def test_nothing_is_reached_until_an_account_is_set_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for name in ("EMAIL_ADDRESS", "EMAIL_APP_PASSWORD", "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
-        monkeypatch.delenv(name, raising=False)
-    _, made = tools(tmp_path)
-    result = await made["email_search"].run()
-    assert result.is_error and "Email is not set up" in result.content
-
-
-async def test_a_refused_password_says_what_to_do_and_never_shows_it(
-    gmail: Gmail, tmp_path: Path
-) -> None:
-    gmail.password = "something-else"
-    _, made = tools(tmp_path)
-    result = await made["email_search"].run()
-    assert result.is_error and "refused the app password" in result.content
-    assert "abcd" not in result.content and PASSWORD not in result.content
-
-
-# -- reading ---------------------------------------------------------------------------------
-
-
-async def test_search_uses_gmails_own_syntax_newest_first(gmail: Gmail, tmp_path: Path) -> None:
-    gmail.add(
-        mail("Newsletter <news@shop.example>", "Big sale"), labels={"\\Inbox"}, flags={"\\Seen"}
-    )
-    sam = gmail.add(mail(), labels={"\\Inbox", "\\Important"})
-    gmail.add(mail("Sam Lee <sam@example.com>", "Photos"), labels={"\\Inbox", "School"})
-    _, made = tools(tmp_path)
-
-    result = await made["email_search"].run(query="from:sam")
-    assert not result.is_error, result.content
-    lines = result.content.splitlines()
-    assert lines[0] == "2 message(s) for 'from:sam', newest first:"
-    assert "Dinner Friday? · unread, important" in result.content
-    assert f"[id: {sam.msgid:x} · thread: {sam.thrid:x}]" in result.content
-    assert "Big sale" not in result.content
-    everything = await made["email_search"].run()
-    assert "Big sale" in everything.content  # the default is the inbox
-
-
-async def test_reading_folds_quotes_turns_html_to_text_and_lists_files(
-    gmail: Gmail, tmp_path: Path
-) -> None:
-    body = "Friday works.\n\nOn Wed, 30 Sep 2026, Me wrote:\n> Are you free?\n> Let me know"
-    stored = gmail.add(
-        mail(
-            body=body,
-            html="<html><body><p>Friday <b>works</b>.</p></body></html>",
-            files=(("menu.pdf", b"%PDF-1.4 menu", "application/pdf"),),
-        )
-    )
-    _, made = tools(tmp_path)
-    result = await made["email_read"].run(message_id=f"{stored.msgid:x}")
-    text = result.content
-    assert "From: Sam Lee <sam@example.com>" in text and "Subject: Dinner Friday?" in text
-    assert "Friday works." in text and "[... 3 quoted line(s) folded]" in text
-    assert "Are you free?" not in text
-    assert "1. menu.pdf (application/pdf, 13 B)" in text
-
-    html_only = gmail.add(mail(body="x", subject="Receipt"))
-    html_only.raw = html_only.raw.replace(
-        b"Content-Type: text/plain", b"Content-Type: text/html"
-    ).replace(b"x\r\n", b"<p>Total: <b>$42</b></p>\r\n")
-    receipt = await made["email_read"].run(message_id=f"{html_only.msgid:x}")
-    assert "Total: $42" in receipt.content and "<b>" not in receipt.content
-
-
-async def test_an_unverified_sender_is_said_before_the_body(gmail: Gmail, tmp_path: Path) -> None:
-    stored = gmail.add(
-        mail(
-            "Bank <security@bank.example>",
-            "Verify your account",
-            "Click here and reply with your password.",
-            headers={
-                "Authentication-Results": "mx.google.com; spf=fail smtp.mailfrom=bank.example"
-            },
-        )
-    )
-    _, made = tools(tmp_path)
-    text = (await made["email_read"].run(message_id=f"{stored.msgid:x}")).content
-    warning = text.index("(Gmail could not verify that this came from bank.example)")
-    assert warning < text.index("Click here")
-
-
-async def test_a_thread_is_read_whole(gmail: Gmail, tmp_path: Path) -> None:
-    first = gmail.add(mail(body="Are you free?"))
-    gmail.add(mail(ME, "Re: Dinner Friday?", "Yes!", to="sam@example.com"), thrid=first.thrid)
-    _, made = tools(tmp_path)
-    text = (await made["email_read"].run(thread_id=f"{first.thrid:x}")).content
-    assert "Are you free?" in text and "Yes!" in text and text.count("---") >= 1
-
-
-async def test_an_attachment_is_a_picture_or_a_file_in_the_workspace(
-    gmail: Gmail, tmp_path: Path
-) -> None:
-    png = b"\x89PNG\r\n\x1a\n" + b"0" * 20
-    stored = gmail.add(
-        mail(
-            files=(
-                ("../../evil name.pdf", b"%PDF-1.4 x", "application/pdf"),
-                ("map.png", png, "image/png"),
-            )
-        )
-    )
-    ctx, made = tools(tmp_path)
-    saved = await made["email_attachment"].run(message_id=f"{stored.msgid:x}", attachment="1")
-    target = tmp_path / "email-attachments" / f"{stored.msgid:x}" / "evil name.pdf"
-    assert target.read_bytes() == b"%PDF-1.4 x"
-    assert "read_media" in saved.content
-
-    picture = await made["email_attachment"].run(
-        message_id=f"{stored.msgid:x}", attachment="map.png"
-    )
-    assert picture.images and ctx.media.put_calls == [(png, "map.png (attached to an email)")]
-
-
-async def test_labels_are_listed_without_gmails_own_folders(gmail: Gmail, tmp_path: Path) -> None:
-    _, made = tools(tmp_path)
-    assert (await made["email_labels"].run()).content == "personal: Receipts, School"
-
-
-def test_every_tool_is_owner_only_and_untrusted(tmp_path: Path) -> None:
-    _, made = tools(tmp_path)
-    for tool in made.values():
-        assert tool.trusted_only and tool.untrusted, tool.name
-    assert {n for n, t in made.items() if t.gated} == {
-        "email_draft",
-        "email_send",
-        "email_organise",
-    }
-
-
-# -- G2, R6.9-R6.13: sending -------------------------------------------------------------------
-
-
-async def test_a_send_is_a_confirm_card_with_everything_on_it(gmail: Gmail, tmp_path: Path) -> None:
-    ctx, made = tools(tmp_path)
-    subject, result = await carded(
-        made["email_send"],
-        to=["sam@example.com"],
-        bcc=["boss@example.com"],
-        subject="Friday",
-        body="Friday works - see you at 7.",
-    )
-    assert subject.confirm is True
-    assert subject.summary.splitlines()[:6] == [
-        f"Send from {ME}",
-        "To: sam@example.com",
-        "Bcc: boss@example.com",
-        "Subject: Friday",
-        "",
-        "Friday works - see you at 7.",
-    ]
-    assert not result.is_error, result.content
-    [(sender, recipients, _)] = gmail.sent
-    assert sender == ME and recipients == ["sam@example.com", "boss@example.com"]
-    message = sent_message(gmail)
-    assert message["Bcc"] is None and message["From"] == ME
-    assert message.get_content().strip() == "Friday works - see you at 7."
-    assert ctx.audited[-1][0] == "email_sent" and ctx.audited[-1][2]["recipients"] == 2
-
-
-async def test_a_reply_goes_where_the_original_says_and_threads(
-    gmail: Gmail, tmp_path: Path
-) -> None:
-    original = gmail.add(
-        mail(
-            cc="alex@example.com, me@gmail.com",
-            headers={"Reply-To": "Sam <sam.home@example.com>", "References": "<older@example.com>"},
-        )
-    )
-    _, made = tools(tmp_path)
-    subject, _ = await carded(
-        made["email_send"], reply_to=f"{original.msgid:x}", reply_all=True, body="Friday works."
-    )
-    assert "To: sam.home@example.com" in subject.summary
-    assert (
-        "Cc: alex@example.com" in subject.summary
-        and "Cc: alex@example.com, me" not in subject.summary
-    )
-    assert "(replying to Sam Lee, " in subject.summary
-    message = sent_message(gmail)
-    assert message["Subject"] == "Re: Dinner Friday?"
-    assert message["In-Reply-To"] == original.parsed["Message-ID"]
-    assert message["References"].startswith("<older@example.com>")
-    assert "Are you free" not in message.get_content()  # the original is not quoted
-
-
-async def test_a_send_without_a_card_sends_nothing(gmail: Gmail, tmp_path: Path) -> None:
-    _, made = tools(tmp_path)
-    result = await made["email_send"].run(to=["sam@example.com"], subject="x", body="y")
-    assert result.is_error and "shown to the person first" in result.content
-    assert gmail.sent == []
-    nobody = await made["email_send"].run(subject="x", body="y")
-    assert nobody.is_error and "no recipients" in nobody.content
-
-
-async def test_sends_are_capped_per_hour(gmail: Gmail, tmp_path: Path) -> None:
-    _, made = tools(tmp_path, sends_per_hour=1)
-    arguments = {"to": ["sam@example.com"], "subject": "x", "body": "y"}
-    await carded(made["email_send"], **arguments)
-    _, second = await carded(made["email_send"], **arguments)
-    assert second.is_error and "the limit" in second.content and len(gmail.sent) == 1
-
-
-async def test_a_draft_is_free_and_sending_it_checks_it_did_not_change(
-    gmail: Gmail, tmp_path: Path
-) -> None:
-    _, made = tools(tmp_path)
-    arguments = {"to": ["sam@example.com"], "subject": "Plans", "body": "Draft text."}
-    assert await made["email_draft"].subject(arguments) is None  # a draft reaches nobody
-    saved = await made["email_draft"].run(**arguments)
-    draft_id = re.search(r"draft id: (\w+)", saved.content).group(1)  # type: ignore[union-attr]
-    [draft] = [m for m in gmail.messages if "\\Draft" in m.flags]
-    assert f"{draft.msgid:x}" == draft_id
-
-    subject = await made["email_send"].subject({"draft_id": draft_id})
-    assert "Draft text." in subject.summary and "(sending a saved draft)" in subject.summary
-    draft.raw = draft.raw.replace(b"Draft text.", b"Edited in Gmail.")
-    changed = await made["email_send"].run(draft_id=draft_id)
-    assert changed.is_error and "changed since it was shown" in changed.content and gmail.sent == []
-
-    _, sent = await carded(made["email_send"], draft_id=draft_id)
-    assert not sent.is_error and "Edited in Gmail." in sent_message(gmail).get_content()
-    assert draft.trashed
-
-
-# -- G9, R6.14-R6.19: attachments ---------------------------------------------------------------
-
-
-async def test_a_workspace_file_is_attached_as_the_card_showed_it(
-    gmail: Gmail, tmp_path: Path
-) -> None:
-    (tmp_path / "docs").mkdir()
-    menu = tmp_path / "docs" / "menu.pdf"
-    menu.write_bytes(b"%PDF-1.4 the real menu")
-    ctx, made = tools(tmp_path)
-    arguments = {
-        "to": ["sam@example.com"],
-        "subject": "Menu",
-        "body": "Attached.",
-        "attachments": ["docs/menu.pdf"],
-    }
-
-    subject = await made["email_send"].subject(arguments)
-    digest = hashlib.sha256(b"%PDF-1.4 the real menu").hexdigest()
-    assert (
-        f"menu.pdf - PDF, 22 B, sha256 {digest[:8]} - from the workspace: docs/menu.pdf"
-        in subject.summary
-    )
-    menu.write_bytes(b"%PDF-1.4 swapped after the card")
-    await made["email_send"].run(**arguments)
-
-    [part] = [p for p in sent_message(gmail).walk() if p.get_filename()]
-    assert part.get_filename() == "menu.pdf" and part.get_content_type() == "application/pdf"
-    assert part.get_payload(decode=True) == b"%PDF-1.4 the real menu"  # R6.17
-    assert ctx.audited[-1][2]["files"] == [
-        {
-            "name": "menu.pdf",
-            "size": 22,
-            "sha256": digest,
-            "source": "from the workspace: docs/menu.pdf",
-        }
+async def test_the_wrapper_speaks_aioimaplib(tmp_path: Path) -> None:
+    account = plugin.load_accounts(settings())[0]["work"]
+    imap = plugin.Imap(account)
+    imap.client = Client()
+    assert await imap.select("Sent Items") == plugin.Selected(9, 12)
+    assert await imap.search(["UNSEEN"]) == [3, 5, 8]
+    await imap.move([3, 5], "Archive")
+    await imap.store([8], "+FLAGS", "\\Seen")
+    await imap.append("Drafts", b"x", "(\\Draft)")
+    assert imap.client.calls == [
+        ("examine", '"Sent Items"'),
+        ("uid_search", "UNSEEN"),
+        ("uid", "move", "3,5", '"Archive"'),
+        ("uid", "store", "8", "+FLAGS", "(\\Seen)"),
+        ("append", '"Drafts"', "(\\Draft)"),
     ]
 
 
-@pytest.mark.parametrize(
-    ("path", "why"),
-    [
-        ("../outside.txt", "outside the workspace"),
-        (".env", "hidden file"),
-        ("notes/.ssh/config", "hidden file"),
-        (".atlas/connections.json", "Atlas's own state"),
-        ("keys/id_ed25519", "key material"),
-        ("keys/server.pem", "key material"),
-        ("notes/setup.txt", "credential"),
-        ("missing.pdf", "no file"),
-    ],
-)
-async def test_what_may_not_leave_is_refused_before_any_card(
-    gmail: Gmail, tmp_path: Path, path: str, why: str
+# -- E7, E8, R5: configuration -------------------------------------------------------------
+
+
+async def test_password_is_never_in_a_result_or_record(
+    server: Server, outbox: Outbox, tmp_path: Path
 ) -> None:
-    workspace = tmp_path / "ws"
-    for name, content in {
-        ".env": b"X=1",
-        "notes/.ssh/config": b"Host x",
-        ".atlas/connections.json": b"{}",
-        "keys/id_ed25519": b"-",
-        "keys/server.pem": b"-",
-        "notes/setup.txt": b"my key is sk-ant-api03-" + b"a" * 90,
-    }.items():
-        (workspace / name).parent.mkdir(parents=True, exist_ok=True)
-        (workspace / name).write_bytes(content)
-    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
-    _, made = tools(workspace)
-    arguments = {"to": ["sam@example.com"], "subject": "x", "body": "y", "attachments": [path]}
-    assert await made["email_send"].subject(arguments) is None
-    result = await made["email_send"].run(**arguments)
-    assert result.is_error and why in result.content and gmail.sent == []
-    if path == "notes/setup.txt":
-        assert "sk-ant" not in result.content  # the label, never the value
+    email = tool(server, outbox, tmp_path)
+    for action, extra in (("accounts", {}), ("read", {"uid": 1}), ("search", {}), ("folders", {})):
+        result = await email.run(action, **extra)
+        assert "app-password-123" not in result.content
 
 
-async def test_a_file_sent_in_this_chat_can_be_attached(gmail: Gmail, tmp_path: Path) -> None:
-    ctx, made = tools(tmp_path)
-    data = b"%PDF-1.4 the lease"
-    block = SimpleNamespace(name="lease.pdf", source="lease.pdf (attached)", sha256="abc")
-    ctx.media.held["abc"] = data
-    ctx.sent_here.append(block)
-    subject, _ = await carded(
-        made["email_send"],
-        to=["agent@example.com"],
-        subject="Lease",
-        body="Signed.",
-        attachments=["chat:lease.pdf"],
-    )
-    assert (
-        "lease.pdf - PDF, 18 B" in subject.summary and "you sent it in this chat" in subject.summary
-    )
-    [part] = [p for p in sent_message(gmail).walk() if p.get_filename()]
-    assert part.get_payload(decode=True) == data
-
-    missing = await made["email_send"].run(
-        to=["agent@example.com"], subject="x", body="y", attachments=["chat:nothing.pdf"]
-    )
-    assert missing.is_error and "was sent in this conversation" in missing.content
+async def test_without_an_account_the_tool_says_what_it_needs(
+    server: Server, outbox: Outbox, tmp_path: Path
+) -> None:
+    email = tool(server, outbox, tmp_path, settings={"accounts": {}})
+    result = await email.run("search")
+    assert result.is_error and "plugins_settings.email.accounts" in result.content
+    assert "secret" in result.content and server.opened == 0
 
 
-async def test_a_forward_carries_the_original_and_its_files(gmail: Gmail, tmp_path: Path) -> None:
-    original = gmail.add(mail(files=(("menu.pdf", b"%PDF-1.4 menu", "application/pdf"),)))
-    _, made = tools(tmp_path)
-    subject, _ = await carded(
-        made["email_send"], forward=f"{original.msgid:x}", to=["alex@example.com"], body="FYI"
-    )
-    assert "---------- Forwarded message ---------" in subject.summary
-    assert "Are you free Friday at 7?" in subject.summary  # the forwarded text is on the card
-    assert "menu.pdf - PDF, 13 B" in subject.summary and "from the original" in subject.summary
-    message = sent_message(gmail)
-    assert message["Subject"] == "Fwd: Dinner Friday?"
-    assert [p.get_filename() for p in message.walk() if p.get_filename()] == ["menu.pdf"]
-
-
-async def test_a_draft_with_files_asks_first(gmail: Gmail, tmp_path: Path) -> None:
-    (tmp_path / "plan.txt").write_text("the plan", encoding="utf-8")
-    _, made = tools(tmp_path)
-    subject = await made["email_draft"].subject(
+def test_a_bad_account_is_refused_with_its_key() -> None:
+    accounts, problems = plugin.load_accounts(
         {
-            "to": ["sam@example.com"],
-            "subject": "Plan",
-            "body": "See file.",
-            "attachments": ["plan.txt"],
+            "accounts": {
+                "Work Mail": dict(ACCOUNT),
+                "plain": dict(ACCOUNT, smtp_port=25),
+                "partial": {"address": "x@y.z"},
+                "ok": dict(ACCOUNT),
+            }
         }
     )
-    assert subject is not None and subject.confirm is False
-    assert "plan.txt - PLAIN, 8 B" in subject.summary
+    assert list(accounts) == ["ok"]
+    joined = " ".join(problems)
+    assert "Work Mail" in joined and "no plaintext mode" in joined and "missing" in joined
 
 
-# -- R6.3: organising --------------------------------------------------------------------------
-
-
-async def test_organising_is_carded_capped_and_never_permanent(
-    gmail: Gmail, tmp_path: Path
+async def test_several_accounts_need_a_name_or_a_default(
+    server: Server, outbox: Outbox, tmp_path: Path
 ) -> None:
-    news = [gmail.add(mail("Shop <news@shop.example>", f"Sale {n}")) for n in range(3)]
-    keep = gmail.add(mail())
-    _, made = tools(tmp_path)
-    subject, result = await carded(made["email_organise"], action="archive", query="from:shop")
-    assert subject.summary == "Archive 3 message(s) from Shop (personal)" and not subject.confirm
-    assert not result.is_error and all("\\Inbox" not in m.labels for m in news)
-    assert "\\Inbox" in keep.labels
+    two = settings(accounts={"work": dict(ACCOUNT), "home": dict(ACCOUNT)})
+    email = tool(server, outbox, tmp_path, settings=two)
+    result = await email.run("search")
+    assert result.is_error and "work" in result.content and "home" in result.content
+    assert not (await email.run("search", account="home")).is_error
 
-    _, trashed = await carded(
-        made["email_organise"], action="trash", message_ids=[f"{news[0].msgid:x}"]
+
+# -- §9: the watcher ------------------------------------------------------------------------
+
+
+class Service:
+    def __init__(self, tmp_path: Path, woke: bool = True, **overrides: Any) -> None:
+        self.settings = settings(**overrides)
+        self.workspace = tmp_path
+        self.records: list[tuple[str, str, dict[str, Any]]] = []
+        self.wakes: list[str] = []
+        self.answer = woke
+
+    def audit(self, event: str, detail: str = "", **kw: Any) -> None:
+        self.records.append((event, detail, dict(kw.get("arguments") or {})))
+
+    async def wake(self, text: str) -> bool:
+        self.wakes.append(text)
+        return self.answer
+
+
+async def running(watcher: Any) -> asyncio.Task[None]:
+    watcher.debounce = 0
+    task = asyncio.create_task(watcher.run())
+    await asyncio.sleep(0.02)
+    return task
+
+
+async def stop(task: asyncio.Task[None]) -> None:
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def settle(condition: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if condition():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition never held")
+
+
+async def test_first_start_announces_nothing(server: Server, tmp_path: Path) -> None:
+    service = Service(tmp_path)
+    task = await running(plugin.Watcher(service, connector=connector(server)))
+    try:
+        await settle(lambda: any("baseline" in r[1] for r in service.records))
+        assert service.wakes == []
+        state = json.loads((tmp_path / ".atlas" / "email.json").read_text())
+        assert state["folders"]["work/INBOX"] == {"uidvalidity": 1714, "last": 1}
+    finally:
+        await stop(task)
+
+
+async def test_wake_text_holds_no_message_text(server: Server, tmp_path: Path) -> None:
+    service = Service(tmp_path)
+    task = await running(plugin.Watcher(service, connector=connector(server)))
+    try:
+        await settle(lambda: any("baseline" in r[1] for r in service.records))
+        server.boxes["INBOX"].add(mail(sender="Mallory <m@evil.example>", subject="URGENT do X"))
+        server.pushed.set()
+        await settle(lambda: bool(service.wakes))
+    finally:
+        await stop(task)
+    [text] = service.wakes
+    assert text == (
+        "New mail: work INBOX 1 (uid 2, uidvalidity 1714).\nThe person asked: Summarise it."
     )
-    assert not trashed.is_error and news[0].trashed and news[0] in gmail.messages
-
-    for n in range(51):
-        gmail.add(mail("Bulk <bulk@example.com>", f"Bulk {n}"))
-    too_many = await made["email_organise"].run(action="read", query="from:bulk")
-    assert too_many.is_error and "at most 50" in too_many.content
+    assert "Mallory" not in text and "URGENT" not in text
+    assert all("URGENT" not in str(r) and "Mallory" not in str(r) for r in service.records)
 
 
-# -- §7: important mail ------------------------------------------------------------------------
+async def test_downtime_is_one_wake(server: Server, tmp_path: Path) -> None:
+    (tmp_path / ".atlas").mkdir()
+    (tmp_path / ".atlas" / "email.json").write_text(
+        json.dumps({"folders": {"work/INBOX": {"uidvalidity": 1714, "last": 1}}})
+    )
+    for n in range(3):
+        server.boxes["INBOX"].add(mail(subject=f"while away {n}"))
+    server.boxes["INBOX"].add(mail(subject="read elsewhere"), "\\Seen")
+    service = Service(tmp_path)
+    task = await running(plugin.Watcher(service, connector=connector(server)))
+    try:
+        await settle(lambda: bool(service.wakes))
+        await asyncio.sleep(0.05)
+    finally:
+        await stop(task)
+    assert len(service.wakes) == 1
+    # Three unseen announced; the one already read elsewhere is not (R9.6).
+    assert "work INBOX 3 (uids 2, 3, 4," in service.wakes[0]
 
 
-class ServiceContext:
-    def __init__(self, workspace: Path, sleeps: int = 1, **settings: Any) -> None:
-        self.workspace = workspace
-        self.settings = {"notify": "important", "poll_minutes": 2, **settings}
-        self.left = sleeps
-        self.sent: list[str] = []
-        self.state_dir = workspace / "state"
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.between: list[Any] = []
-
-    @property
-    def stopping(self) -> bool:
-        return self.left < 0
-
-    def setting(self, key: str, default: Any = None) -> Any:
-        return self.settings.get(key, default)
-
-    async def sleep_for(self, seconds: float) -> bool:
-        self.left -= 1
-        if self.between:
-            self.between.pop(0)()
-        return self.stopping
-
-    async def notify(self, text: str) -> str:
-        self.sent.append(text)
-        return "telegram:dm:1"
-
-
-async def test_important_mail_is_one_line_and_the_backlog_is_not_announced(
-    gmail: Gmail, tmp_path: Path
+async def test_a_refused_wake_keeps_its_uids(
+    server: Server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    gmail.add(mail("Old <old@example.com>", "From last week"), labels={"\\Inbox", "\\Important"})
-    ctx = ServiceContext(tmp_path, sleeps=2)
-    ctx.between = [
-        lambda: (
-            gmail.add(mail(), labels={"\\Inbox", "\\Important"}),
-            gmail.add(mail("Shop <news@shop.example>", "Sale"), labels={"\\Inbox"}),
-            gmail.add(mail(f"Me <{ME}>", "Note to self"), labels={"\\Inbox", "\\Important"}),
-        ),
-        lambda: None,
-    ]
-    await gm.NewMail().run(ctx)  # type: ignore[arg-type]
-    assert ctx.sent == ["📧 Sam Lee - Dinner Friday?"]
+    monkeypatch.setattr(plugin, "WAKE_RETRY_SECONDS", 0.01)
+    service = Service(tmp_path, woke=False)
+    task = await running(plugin.Watcher(service, connector=connector(server)))
+    try:
+        await settle(lambda: any("baseline" in r[1] for r in service.records))
+        server.boxes["INBOX"].add(mail(subject="first"))
+        server.pushed.set()
+        await settle(lambda: len(service.wakes) >= 1)
+        service.answer = True
+        server.boxes["INBOX"].add(mail(subject="second"))
+        server.pushed.set()
+        await settle(lambda: len(service.wakes) >= 2)
+    finally:
+        await stop(task)
+    assert "uids 2, 3" in service.wakes[-1], service.wakes
 
 
-async def test_several_at_once_are_one_line_of_senders(gmail: Gmail, tmp_path: Path) -> None:
-    ctx = ServiceContext(tmp_path, sleeps=1)
-    ctx.between = [
-        lambda: [
-            gmail.add(
-                mail(f"Person {n} <p{n}@example.com>", f"Hello {n}"),
-                labels={"\\Inbox", "\\Important"},
-            )
-            for n in range(3)
-        ]
-    ]
-    await gm.NewMail().run(ctx)  # type: ignore[arg-type]
-    assert ctx.sent == ["📧 3 important emails: Person 0, Person 1, Person 2"]
+async def test_without_on_new_nothing_is_watched(server: Server, tmp_path: Path) -> None:
+    service = Service(tmp_path, on_new="")
+    await asyncio.wait_for(plugin.Watcher(service, connector=connector(server)).run(), 1)
+    assert server.opened == 0 and service.wakes == []
 
 
-async def test_a_revoked_password_is_said_once(gmail: Gmail, tmp_path: Path) -> None:
-    gmail.password = "revoked"
-    ctx = ServiceContext(tmp_path, sleeps=3)
-    await gm.NewMail().run(ctx)  # type: ignore[arg-type]
-    assert len(ctx.sent) == 1 and "refused the app password" in ctx.sent[0]
+async def test_a_refused_login_stops_that_watcher(server: Server, tmp_path: Path) -> None:
+    server.refuse_login = True
+    service = Service(tmp_path)
+    watcher = plugin.Watcher(service, connector=connector(server))
+    folder = asyncio.create_task(watcher.folder(watcher.accounts["work"], "INBOX"))
+    await asyncio.wait_for(folder, 1)
+    assert any("stopped" in r[1] for r in service.records)
 
 
-# -- SDK 1.34 ------------------------------------------------------------------------------------
+def test_many_uids_are_a_count_and_a_range() -> None:
+    text = plugin.wake_text({("work", "INBOX"): (7, list(range(1, 120)))}, "Go.")
+    assert text.startswith("New mail: work INBOX 119 (uids 1-119, uidvalidity 7).")
+    assert len(text) < 2000
 
 
-# -- R6.20-R6.23: links ----------------------------------------------------------------------
+# -- §6.1: the Gmail preset ------------------------------------------------------------------
 
 
-def parts_of(message: Any) -> dict[str, str]:
-    return {
-        part.get_content_type(): part.get_content()
-        for part in message.walk()
-        if part.get_content_type() in ("text/plain", "text/html")
-    }
+GMAIL_ACCOUNT = {"provider": "gmail", "address": "me@gmail.com", "watch": ["INBOX"]}
 
 
-async def test_link_words_go_as_html_and_the_card_shows_the_address(
-    gmail: Gmail, tmp_path: Path
+class LoginClient(Client):
+    """`aioimaplib.IMAP4_SSL` as far as a login goes, recording which one ran."""
+
+    def __init__(self, *, accept: bool = True) -> None:
+        super().__init__()
+        self.accept = accept
+
+    async def wait_hello_from_server(self) -> None:
+        pass
+
+    async def login(self, user: str, password: str) -> Any:
+        self.calls.append(("login", user, password))
+        return self.Response("OK" if self.accept else "NO", [b"LOGIN failed"])
+
+
+def imap_library(monkeypatch: pytest.MonkeyPatch, *, accept: bool = True) -> None:
+    import aioimaplib
+
+    monkeypatch.setattr(aioimaplib, "IMAP4_SSL", lambda **_: LoginClient(accept=accept))
+
+
+def test_a_provider_fills_the_hosts_and_a_typed_one_wins() -> None:
+    accounts, problems = plugin.load_accounts(
+        {
+            "accounts": {
+                "home": dict(GMAIL_ACCOUNT),
+                "mine": dict(GMAIL_ACCOUNT, imap_host="imap.proxy.example"),
+                "odd": {"provider": "yahoo", "address": "me@yahoo.com"},
+                "gone": {"provider": "outlook", "address": "me@contoso.com"},
+            }
+        }
+    )
+    home = accounts["home"]
+    assert (home.imap_host, home.smtp_host, home.smtp_port) == (
+        "imap.gmail.com",
+        "smtp.gmail.com",
+        465,
+    )
+    assert accounts["mine"].imap_host == "imap.proxy.example"
+    assert "odd" not in accounts and "gone" not in accounts
+    assert sum("provider" in p for p in problems) == 2
+
+
+async def test_a_provider_account_logs_in_with_its_app_password(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, made = tools(tmp_path)
-    body = "The menu is [here](https://cafe.example/menu?day=fri).\n\nSee you <b>then</b>."
-    subject, result = await carded(
-        made["email_send"], to=["sam@example.com"], subject="Friday", body=body
-    )
-    assert "The menu is here <https://cafe.example/menu?day=fri>." in subject.summary
-    assert not result.is_error, result.content
-    parts = parts_of(sent_message(gmail))
-    assert "The menu is here (https://cafe.example/menu?day=fri)." in parts["text/plain"]
-    html_part = parts["text/html"]
-    assert '<a href="https://cafe.example/menu?day=fri">here</a>' in html_part
-    assert "&lt;b&gt;then&lt;/b&gt;" in html_part and "<b>" not in html_part
+    """There is no OAuth sign-in: a Gmail account is a password
+    account whose servers are filled in."""
+    import aiosmtplib
+
+    monkeypatch.setenv("ATLAS_EMAIL_PASSWORD_WORK", "app-password")
+    imap_library(monkeypatch)
+    account = plugin.load_accounts(settings(accounts={"work": dict(GMAIL_ACCOUNT)}))[0]["work"]
+    imap = await plugin.Imap(account).open()
+    assert imap.client.calls == [("login", "me@gmail.com", "app-password")]
+
+    sent: dict[str, Any] = {}
+
+    async def send(message: Any, **kw: Any) -> None:
+        sent.update(kw)
+
+    monkeypatch.setattr(aiosmtplib, "send", send)
+    await plugin.smtp_send(account, plugin.compose(account, to=["a@x.com"], body="hi"))
+    assert sent["username"] == "me@gmail.com" and sent["password"] == "app-password"
+    assert "oauth_token_generator" not in sent and sent["hostname"] == "smtp.gmail.com"
 
 
-async def test_a_body_without_links_is_plain_text(gmail: Gmail, tmp_path: Path) -> None:
-    _, made = tools(tmp_path)
-    await carded(
-        made["email_send"], to=["sam@example.com"], subject="x", body="See https://a.example"
-    )
-    assert list(parts_of(sent_message(gmail))) == ["text/plain"]
-
-
-@pytest.mark.parametrize(
-    ("body", "why"),
-    [
-        ("[click](javascript:alert%281%29)", "only https, http and mailto"),
-        ("[photo](data:text/html,hi)", "only https, http and mailto"),
-        ("[see](file:///C:/secret.txt)", "only https, http and mailto"),
-        ("[paypal.com](https://paypal.evil.example/login)", "goes to paypal.evil.example"),
-        ("[https://bank.example](https://bank.example.evil.example)", "goes to"),
-    ],
-)
-async def test_a_dangerous_or_misleading_link_is_refused(
-    gmail: Gmail, tmp_path: Path, body: str, why: str
+async def test_a_refused_provider_login_names_the_app_password(
+    monkeypatch: pytest.MonkeyPatch, outbox: Outbox, tmp_path: Path
 ) -> None:
-    _, made = tools(tmp_path)
-    arguments = {"to": ["sam@example.com"], "subject": "x", "body": body}
-    assert await made["email_send"].subject(arguments) is None
-    result = await made["email_send"].run(**arguments)
-    assert result.is_error and why in result.content and gmail.sent == []
+    monkeypatch.setenv("ATLAS_EMAIL_PASSWORD_WORK", "wrong")
+    imap_library(monkeypatch, accept=False)
+
+    async def opened(account: Any) -> Any:
+        return await plugin.Imap(account).open()
+
+    email = plugin.EmailTool(
+        workspace=tmp_path,
+        settings=settings(accounts={"work": dict(GMAIL_ACCOUNT)}),
+        connector=opened,
+        sender=outbox,
+    )
+    result = await email.run("search")
+    assert result.is_error and "Gmail app password" in result.content
+    assert "ATLAS_EMAIL_PASSWORD_WORK" in result.content and "wrong" not in result.content
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        "[example.com](https://www.example.com/x)",
-        "[example.com](https://shop.example.com)",
-        "[email me](mailto:me@gmail.com)",
-    ],
-)
-async def test_link_words_naming_the_same_site_are_fine(
-    gmail: Gmail, tmp_path: Path, body: str
+def test_the_form_describes_every_account_key() -> None:
+    """The settings page draws accounts from the manifest (Atlas
+    `plugin-sdk.md` section 7.5.1): every key `load_accounts` reads is a field,
+    and every account keeps its password where the plugin reads it."""
+    import re
+
+    manifest = read_manifest(HERE.parent / "PLUGIN.md", source="dir")
+    accounts = manifest.config_schema["accounts"]
+    source = (HERE.parent / "plugin.py").read_text(encoding="utf-8")
+    start = source.index("def load_accounts")
+    body = source[start : source.index("\ndef ", start + 1)]
+    read = set(re.findall(r'entry(?:\.get\(|\[)"([a-z_]+)"', body))
+    assert read == {f.key for f in accounts.entries}
+    assert not accounts.login_by and not manifest.logins
+    assert set(accounts.entries[0].choices) == {"", *plugin.PROVIDERS}
+    assert accounts.secret_for("work") == plugin.PASSWORD_VARIABLE.format(account="WORK")
+
+
+async def test_a_password_stored_after_start_is_read_without_a_restart(
+    server: Server, outbox: Outbox, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, made = tools(tmp_path)
-    _, result = await carded(made["email_send"], to=["sam@example.com"], subject="x", body=body)
-    assert not result.is_error, result.content
+    """R5.2: the `secret` tool and the settings page write `.env` while the
+    gateway runs and never touch the process's environment, so the password
+    is read from the file at each connection. Reading only `os.environ`, a
+    watcher said "no password" until the gateway restarted."""
+    monkeypatch.delenv("ATLAS_EMAIL_PASSWORD_HOME", raising=False)
+    email = tool(server, outbox, tmp_path, settings=settings(accounts={"home": dict(ACCOUNT)}))
+    account = email.accounts["home"]
+    assert account.password() == ""
+    assert "no password (ATLAS_EMAIL_PASSWORD_HOME)" in (await email.run("accounts")).content
+
+    (tmp_path / ".atlas").mkdir(exist_ok=True)
+    (tmp_path / ".atlas" / ".env").write_text("ATLAS_EMAIL_PASSWORD_HOME=stored-later\n")
+
+    assert account.password() == "stored-later"
+    listed = (await email.run("accounts")).content
+    assert "no password" not in listed and "stored-later" not in listed
+    watcher = plugin.Watcher(Service(tmp_path, accounts={"home": dict(ACCOUNT)}))
+    assert watcher.accounts["home"].password() == "stored-later"
+    # The process still wins over the file, as for every credential.
+    monkeypatch.setenv("ATLAS_EMAIL_PASSWORD_HOME", "from-the-shell")
+    assert account.password() == "from-the-shell"
 
 
-async def test_a_forwarded_originals_brackets_are_never_links(gmail: Gmail, tmp_path: Path) -> None:
-    original = gmail.add(mail(body="Win a prize: [claim](javascript:steal())"))
-    _, made = tools(tmp_path)
-    await carded(
-        made["email_send"],
-        forward=f"{original.msgid:x}",
-        to=["alex@example.com"],
-        body="Is [this](https://scam.example) a scam?",
-    )
-    html_part = parts_of(sent_message(gmail))["text/html"]
-    assert '<a href="https://scam.example">this</a>' in html_part
-    assert "javascript" in html_part and 'href="javascript' not in html_part
+async def test_a_folder_opened_to_read_is_searchable() -> None:
+    """The library enters its selected state on SELECT only; the plugin opens a
+    folder to read with EXAMINE, so it says the folder is open itself. Without
+    that every search failed with "command SEARCH illegal in state AUTH",
+    before anything reached the server, and so did the new-mail watcher."""
+    account = plugin.load_accounts(settings())[0]["work"]
+    imap = plugin.Imap(account)
+    imap.client = Client()
+    assert imap.client.protocol.state == "AUTH"
+    await imap.select("INBOX")
+    assert imap.client.calls == [("examine", '"INBOX"')]  # read-only, still
+    assert imap.client.protocol.state == "SELECTED"
+    assert await imap.search(["UNSEEN"]) == [3, 5, 8]
 
 
-# -- R6.14a: a file downloaded to attach ---------------------------------------------------------
+class PageContext:
+    """The parts of a plugin context the settings page's method reads."""
+
+    def __init__(self, current: dict[str, Any]) -> None:
+        self.settings: dict[str, Any] = {}  # what the session installed with: stale
+        self.current = current
+
+    def current_settings(self) -> dict[str, Any]:
+        return self.current
 
 
-class Download:
-    def __init__(
-        self, body: bytes, *, status: int = 200, name: str = "", truncated: bool = False
-    ) -> None:
-        self.body, self.status, self.name, self.truncated = body, status, name, truncated
-        self.asked: list[tuple[str, dict[str, Any]]] = []
-
-    async def __call__(self, url: str, **kwargs: Any) -> Any:
-        from atlas.web.client import Response
-
-        self.asked.append((url, kwargs))
-        headers = (
-            (("content-disposition", f'attachment; filename="{self.name}"'),) if self.name else ()
-        )
-        return Response(
-            url=url, status=self.status, headers=headers, body=self.body, truncated=self.truncated
-        )
-
-
-async def test_a_file_at_a_web_address_is_downloaded_hashed_and_attached(
-    gmail: Gmail, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_folders_answers_for_a_saved_account_from_the_file(
+    server: Server, tmp_path: Path
 ) -> None:
-    download = Download(b"%PDF-1.4 the timetable", name="timetable.pdf")
-    monkeypatch.setattr(gm, "get", download)
-    _, made = tools(tmp_path)
-    address = "https://school.example/files/12345"
-    subject, result = await carded(
-        made["email_send"],
-        to=["sam@example.com"],
-        subject="Timetable",
-        body="Attached.",
-        attachments=[address],
-    )
-    assert (
-        "timetable.pdf - PDF, 22 B" in subject.summary
-        and f"downloaded from {address}" in subject.summary
-    )
-    assert not result.is_error, result.content
-    assert (
-        len(download.asked) == 1 and download.asked[0][1]["allow_private"] is False
-    )  # the operator's rules
-    [part] = [p for p in sent_message(gmail).walk() if p.get_filename()]
-    assert (
-        part.get_filename() == "timetable.pdf"
-        and part.get_payload(decode=True) == b"%PDF-1.4 the timetable"
-    )
+    """`email.folders` (the watch picker): the account comes from the config as
+    it is now, so one saved a moment ago answers - and a server the page names
+    is never used, so a stored password cannot be pointed somewhere else."""
+    # A folder that holds folders and no mail is nothing to watch.
+    server.boxes["[Gmail]"] = Box(flags=("\\Noselect", "\\HasChildren"))
+    seen: list[str] = []
+
+    async def connect(account: Any) -> FakeImap:
+        seen.append(account.imap_host)
+        return await FakeImap(server).open()
+
+    handler = plugin.folders_method(PageContext(settings()), connector=connect)
+    answer = await handler({"entry": "work", "imap_host": "evil.example"}, tmp_path)
+    assert answer["options"] == ["INBOX", "Sent", "Drafts", "Trash", "Archive"]
+    assert seen == ["imap.example.com"]
+    with pytest.raises(plugin.MailError, match="no saved account 'nobody'"):
+        await handler({"entry": "nobody"}, tmp_path)
 
 
-@pytest.mark.parametrize(
-    ("download", "why"),
-    [
-        (Download(b"nope", status=404), "HTTP 404"),
-        (Download(b"x" * 10, truncated=True), "over 25 MB"),
-        (Download(b"token: sk-ant-api03-" + b"c" * 90, name="notes.txt"), "credential"),
-    ],
-)
-async def test_a_download_that_should_not_go_is_refused(
-    gmail: Gmail, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, download: Download, why: str
-) -> None:
-    monkeypatch.setattr(gm, "get", download)
-    _, made = tools(tmp_path)
-    result = await made["email_send"].run(
-        to=["sam@example.com"], subject="x", body="y", attachments=["https://files.example/a"]
-    )
-    assert result.is_error and why in result.content and gmail.sent == []
-
-
-async def test_a_private_address_is_refused_by_the_web_rules(
-    gmail: Gmail, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from atlas.errors import NetworkPolicyError
-
-    async def refuse(url: str, **kwargs: Any) -> Any:
-        raise NetworkPolicyError("192.168.1.1 is a private address")
-
-    monkeypatch.setattr(gm, "get", refuse)
-    _, made = tools(tmp_path)
-    result = await made["email_send"].run(
-        to=["sam@example.com"], subject="x", body="y", attachments=["http://192.168.1.1/router.cfg"]
-    )
-    assert result.is_error and "private address" in result.content and gmail.sent == []
+def test_the_manifest_declares_the_folders_method() -> None:
+    manifest = read_manifest(HERE.parent / "PLUGIN.md", source="dir")
+    assert manifest.contracts()["methods"] == ("email.folders",)
+    watch = next(f for f in manifest.config_schema["accounts"].entries if f.key == "watch")
+    assert watch.options_from == "folders"

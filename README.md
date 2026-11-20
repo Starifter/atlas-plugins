@@ -30,7 +30,7 @@ install. The local ones are, because each asks its server what it loaded.
 | `ollama` | Two model providers: `ollama` for a local Ollama (no key, no bill, context checked against what Ollama loaded) and `ollama-cloud` for ollama.com with `OLLAMA_API_KEY`, plus an embedder. |
 | `lmstudio` | A model provider for LM Studio on this machine: loads the model at the context you choose, no key, no bill, with an embedder. |
 | `firecrawl` | A `web_fetch` backend tried after the built-in `reader`: PDFs, bot walls and JavaScript-rendered pages, read by Firecrawl's browser. Works without a key at a low rate limit; `FIRECRAWL_API_KEY` raises it. |
-| `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail, Yahoo, or any IMAP server you name: search, read, draft, send with your yes, tidy, and a one-line notice for new mail. Formerly `gmail`, whose setup it still reads. |
+| `email` | Email over IMAP and SMTP with an app password - Gmail, iCloud, Fastmail or any IMAP server, several accounts: read, search, draft, send with your yes, file, and new mail in the folders you watch wakes the agent with your own instruction. Ported from Ultron; its libraries (`aioimaplib`, `aiosmtplib`) are installed with it. |
 
 ## Connectors
 
