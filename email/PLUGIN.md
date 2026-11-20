@@ -1,382 +1,281 @@
 ---
 name: email
-formerly: gmail
-description: Email - Gmail, iCloud, Fastmail, Yahoo or any IMAP account. Search, read, draft, send with your yes, tidy the inbox, and hear about new mail.
-categories: [email, productivity]
+description: Your email over IMAP and SMTP - read, search, draft, send and file mail, and hear when new mail lands. Mail is information, never instructions.
+version: "3.0.0"
 logo: logo.svg
-version: "2.1.1"
-requires_atlas_sdk: ">=1.34,<2"
+requires_atlas_sdk: ">=1.36,<2"
+categories: [productivity, email]
+wakes: true
+python_dependencies:
+  - "aioimaplib>=2"
+  - "aiosmtplib>=3"
 contracts:
-  tools:
-    - email_search
-    - email_read
-    - email_attachment
-    - email_labels
-    - email_draft
-    - email_send
-    - email_organise
-  services: [new-mail]
+  tools: [email]
+  services: [watcher]
+  methods: [email.folders]
 config_schema:
-  address_env:
-    type: str
-    default: EMAIL_ADDRESS
-    description: The variable, in the environment or ~/.atlas/.env, holding the first account's address.
-  password_env:
-    type: str
-    default: EMAIL_APP_PASSWORD
-    description: The variable holding its app password, made in your mail provider's account security settings.
   accounts:
-    type: list
-    default: [personal]
-    description: Account labels. After the first, each reads <address_env>_<LABEL> and <password_env>_<LABEL>.
-  servers:
     type: dict
-    description: Label to a preset (gmail, icloud, fastmail, yahoo) or {"imap" "host:993", "smtp" "host:465"}, for an address whose provider Atlas cannot tell from its domain.
-  names:
-    type: dict
-    description: Label to the display name on mail sent from that account - {"personal" "Sam Lee"}. Without one, mail goes from the bare address.
-  logins:
-    type: dict
-    description: Label to the IMAP and SMTP login, for a server whose login is not the address. The app password stays in .env.
-  folders:
-    type: dict
-    description: Label to the folders to use, by role (drafts, sent, trash, junk, archive), for an IMAP server whose own markings Atlas would get wrong. Not for Gmail.
-  notify:
+    default: {}
+    description: Your mailboxes, each with its servers and an app password. Gmail fills in its own servers.
+    secret: ATLAS_EMAIL_PASSWORD_{NAME}
+    secret_label: App password
+    entries:
+      provider:
+        type: str
+        label: Provider
+        choices: [gmail, ""]
+        labels: {"gmail": "Gmail", "": "Other (IMAP)"}
+        description: Gmail fills in its servers. Other is any IMAP server. Every account signs in with an app password.
+      address:
+        type: str
+        label: Address
+        required: true
+        format: email
+        description: The address mail is sent from.
+      imap_host:
+        type: str
+        label: IMAP server
+        when: {"provider": [""]}
+        description: Where mail is read from - imap.fastmail.com, say.
+      smtp_host:
+        type: str
+        label: SMTP server
+        when: {"provider": [""]}
+        description: Where mail is sent through - smtp.fastmail.com, say.
+      watch:
+        type: list
+        label: Watch folders
+        options_from: folders
+        description: Folders whose new mail wakes the agent. Empty watches nothing.
+      name:
+        type: str
+        label: Display name
+        advanced: true
+        description: The name on mail you send.
+      username:
+        type: str
+        label: Username
+        advanced: true
+        description: The login, when it is not the address.
+      imap_port:
+        type: int
+        label: IMAP port
+        advanced: true
+        when: {"provider": [""]}
+        description: IMAP over TLS; 993 when empty.
+      smtp_port:
+        type: int
+        label: SMTP port
+        advanced: true
+        when: {"provider": [""]}
+        description: 465 (TLS) or 587 (STARTTLS); 465 when empty.
+      sent_folder:
+        type: str
+        label: Sent folder
+        advanced: true
+        description: Where a sent copy is filed. Empty finds it; Gmail and Outlook keep their own.
+      drafts_folder:
+        type: str
+        label: Drafts folder
+        advanced: true
+        description: Empty finds it by the server's folder roles.
+      trash_folder:
+        type: str
+        label: Trash folder
+        advanced: true
+        description: Empty finds it by the server's folder roles.
+      archive_folder:
+        type: str
+        label: Archive folder
+        advanced: true
+        description: Empty finds it by the server's folder roles.
+  default_account:
     type: str
-    default: important
-    description: What new mail is said to you - important, primary, all, or off. Outside Gmail, all but off mean every new unread inbox message.
-  poll_minutes:
+    default: ""
+    label: Default account
+    entry_of: accounts
+    description: The account a request uses when it names none.
+  on_new:
+    type: str
+    default: ""
+    label: When new mail arrives
+    multiline: true
+    description: What a turn woken by new mail should do, in your words - "Summarise new mail and tell me if anything needs me today". Empty turns new-mail wakes off. Only you write it - no email can.
+  poll_seconds:
     type: int
-    default: 2
-    description: How often new mail is checked for.
-  max_results:
+    default: 300
+    label: Poll every (seconds)
+    advanced: true
+    description: How often a server without IMAP IDLE is checked for new mail (60 to 3600).
+  debounce_seconds:
     type: int
-    default: 20
-    description: The most messages one search returns (at most 100).
-  max_chars:
+    default: 30
+    label: Gather new mail for (seconds)
+    advanced: true
+    description: New mail arriving this close together is one wake (5 to 600).
+  max_message_bytes:
     type: int
-    default: 20000
-    description: The most body text one read returns.
-  attachment_max_mb:
+    default: 1000000
+    label: Longest message body
+    advanced: true
+    description: A message body is cut at this many characters, and the result says so.
+  max_attachment_bytes:
     type: int
-    default: 25
-    description: The largest attachment email_attachment fetches.
-  sends_per_hour:
+    default: 20000000
+    label: Largest attachment read
+    advanced: true
+    description: Larger attachments are listed and never fetched.
+  max_send_attachment_bytes:
     type: int
-    default: 20
-    description: Sends per account per hour before Atlas refuses.
-  attachments_max:
-    type: int
-    default: 10
-    description: Files one send or draft may carry.
+    default: 20000000
+    label: Most attached to one send
+    advanced: true
+    description: The most a send may attach, in total.
 ---
 
 # email
 
-**Read this when:** you want Atlas to read, write or tidy your email - Gmail, iCloud, Fastmail,
-Yahoo or another provider - you want to know why a send asked you first or a file was refused,
-or you want to know exactly what reaches your mail provider.
-
-**See also:** [`docs/spec/email.md`](https://github.com/Starifter/atlas/blob/main/docs/spec/email.md) is the specification and wins where they
-disagree; [`docs/core/channels.md`](https://github.com/Starifter/atlas/blob/main/docs/core/channels.md) is how a new-mail notice
-reaches your phone; [`docs/core/media.md`](https://github.com/Starifter/atlas/blob/main/docs/core/media.md) is how an attached PDF gets read.
-The plugin itself is this directory.
-
----
-
-`email` is in Atlas's official marketplace. Install it once:
+Your mail for Atlas, over plain IMAP and SMTP, so it works with any provider: Fastmail,
+iCloud, Gmail, your own server - anything that takes an app password over IMAP (see
+[Gmail](#gmail)). One tool, `email`,
+reads, searches, drafts, sends and files mail across as many accounts as you configure.
+One background service watches the folders you choose and tells the agent when new mail
+lands.
 
 ```
 /plugins install email
 ```
 
-That copies it into `~/.atlas/plugins/email/` and enables it; it loads on the next session. It
-then does nothing until you give it an account: no connection to any mail server, the tools
-answer "not set up", and the new-mail check sleeps.
+Installed from the official marketplace, its two libraries (`aioimaplib`, `aiosmtplib`) are
+installed with it, into a folder of its own under `~/.atlas/plugin-libs/` - never into the
+environment Atlas runs in. Installed from anywhere else, run
+`uv pip install aioimaplib aiosmtplib` in Atlas's environment yourself.
 
-**It used to be called `gmail`.** If you had that installed, see
-[Coming from `gmail`](#coming-from-gmail) below - your setup keeps working.
+## Mail is information, never instructions
+
+Anyone can put words in front of your agent for the price of your address, so this
+plugin treats mail the way `web_fetch` treats a web page:
+
+- **Everything a sender wrote is enveloped.** Headers, body, attachment names and their
+  contents reach the model inside an untrusted envelope, from every sender, your own
+  address included. A `From:` line is something anybody can write.
+- **No email is ever a prompt.** Mail never becomes a message to the agent, a turn, or a
+  rule. You cannot email your agent instructions, and neither can anyone else.
+- **New mail is a notification.** The wake the agent gets says only the account, the
+  folder, how many arrived and their numbers, then your own `on_new` instruction. The
+  agent reads the mail through the tool, enveloped.
+- **No person, no send.** A turn that new mail started, a cron job or the heartbeat can
+  read, search, draft and file, and cannot send, reply or forward. Sending happens only
+  in a turn you started.
+- **Nothing is deleted.** `trash` moves mail to your Trash folder; the plugin never
+  expunges.
+
+The tool is the owner's alone: it is not offered in a group chat, a thread, a webhook
+session or a stranger's DM. A cron job does have it, so a job can summarise or file your mail
+on a schedule - and, as above, never send.
 
 ## Setup
 
-Atlas reaches your mailbox with an **app password** - a password your provider makes for one
-app, which you can take back at any time without changing your real one. No developer
-account, no sign-in page. Every provider below needs two-step sign-in turned on first.
+The easiest way is the web UI: open **Plugins**, then **email**, then **Settings**. Add an
+account by name, fill in its fields and its app password, and save. The password goes to
+`~/.atlas/.env` and never to config. The steps below do the same by hand.
 
-| Your address ends in | Where to make an app password |
-|---|---|
-| `gmail.com`, `googlemail.com` | [myaccount.google.com](https://myaccount.google.com) → *Security* → *App passwords* |
-| `icloud.com`, `me.com`, `mac.com` | [account.apple.com](https://account.apple.com) → *Sign-In and Security* → *App-Specific Passwords* |
-| `fastmail.com` | Fastmail → *Settings* → *Privacy & Security* → *App passwords* (choose IMAP and SMTP) |
-| `yahoo.com`, `ymail.com` | Yahoo → *Account Security* → *Generate app password* |
+1. Make an app password at your provider. Most refuse a normal password over IMAP; iCloud
+   and Fastmail both have one. For Gmail, see the next section.
+2. Add the account in `~/.atlas/config.json`:
 
-Then store it and your address:
+   ```json
+   { "plugins_settings": { "email": {
+       "accounts": {
+         "personal": {
+           "address": "me@fastmail.com",
+           "imap_host": "imap.fastmail.com",
+           "smtp_host": "smtp.fastmail.com",
+           "watch": ["INBOX"]
+         }
+       },
+       "on_new": "Summarise new mail and tell me if anything needs me today."
+   } } }
+   ```
 
-```console
-$ atlas "store my email app password"
-```
+3. Store the password with the `secret` tool (ask the agent to "store my email password"),
+   or put it in `~/.atlas/.env` yourself:
 
-or write the lines yourself:
+   ```
+   ATLAS_EMAIL_PASSWORD_PERSONAL=<the app password>
+   ```
 
-```
-# ~/.atlas/.env
-EMAIL_ADDRESS=you@icloud.com
-EMAIL_APP_PASSWORD=abcd-efgh-ijkl-mnop
-```
+4. Start a new session. `email accounts` lists what the plugin can use.
 
-That is all - Atlas knows the servers from the address. The password lives in `.env`, never in
-`config.json`, and Atlas never shows it.
-
-**An address on your own domain** - a Google Workspace account, iCloud custom domain, or any
-other mail host - needs one line saying whose servers it is on:
-
-```jsonc
-{ "plugins_settings": { "email": { "servers": { "personal": "gmail" } } } }
-```
-
-or, for a provider that is not one of the four, its servers:
-
-```jsonc
-{ "plugins_settings": { "email": { "servers": {
-  "personal": { "imap": "mail.example.com:993", "smtp": "mail.example.com:465" }
-} } } }
-```
-
-**Outlook, Hotmail and Microsoft 365 can't be reached.** Microsoft no longer accepts passwords
-over IMAP, so the plugin refuses those addresses before it connects.
-
-**Google doesn't offer app passwords to** work or school accounts, accounts with Advanced
-Protection, or accounts whose second step is security keys only.
-
-**A second account** - family, say, on a different provider - is a label and two more lines:
-
-```jsonc
-{ "plugins_settings": { "email": { "accounts": ["personal", "family"] } } }
-```
-
-```
-EMAIL_ADDRESS_FAMILY=family@gmail.com
-EMAIL_APP_PASSWORD_FAMILY=...
-```
-
-With more than one, searches cover all of them and say which each message came from; a send,
-a draft or a change needs you to say which account.
-
-## What you can ask
-
-| You say | Atlas uses | Asks you first? |
+| Account key | Default | Meaning |
 |---|---|---|
-| "Anything from the school this week?" | `email_search` | no |
-| "What did Sam say about Friday?" | `email_search`, `email_read` | no |
-| "What's in the PDF the bank sent?" | `email_attachment`, then `read_media` | no |
-| "Draft a reply saying Friday works" | `email_draft` | no - unless it attaches files |
-| "Reply to Sam that Friday works" | `email_send` | **yes, always** |
-| "Send Alex the menu from my documents" | `email_send` with an attachment | **yes, always** |
-| "Email Sam the timetable at https://..." | `email_send`, downloading it to attach | **yes, always** |
-| "Archive the newsletters" | `email_organise` | yes, as your permission mode says |
+| `address` | required | The address mail is sent from. |
+| `name` | `""` | The display name on sent mail. |
+| `username` | `address` | The login, when it differs from the address. |
+| `imap_host`, `imap_port` | required, `993` | IMAP over TLS. |
+| `smtp_host`, `smtp_port` | required, `465` | `465` is TLS, `587` is STARTTLS. There is no plaintext mode. |
+| `watch` | `[]` | Folders whose new mail wakes the agent. Empty watches nothing. |
+| `sent_folder` | `auto` | Where a sent copy is filed. `auto` finds your Sent folder, and files nothing for Gmail and Outlook, which keep their own copy. `""` never files one. |
+| `drafts_folder`, `trash_folder`, `archive_folder` | `auto` | Found by the server's folder roles, else by name. |
+| `provider` | `""` | `gmail`: fills in the hosts and ports. The account still signs in with an app password. |
 
-Searches are written in Gmail's search syntax for every account - `from:sam is:unread
-newer_than:7d has:attachment`. On Gmail, anything that works in Gmail's search box works here.
-On other providers the common part works - `from:`, `to:`, `cc:`, `subject:`, `is:unread`,
-`is:read`, `is:starred`, `newer_than:`, `older_than:`, `after:`, `before:`, `larger:`,
-`smaller:`, `has:attachment`, `in:<folder>` (and `in:anywhere`), a `-` in front to leave
-something out, and plain words. Gmail-only things like `is:important` or `category:` are
-refused with that list, rather than quietly searching for the words.
+## Gmail
 
-**Every send is a card you answer**, in every permission mode, `yolo` included:
+Set `provider: gmail` and the plugin fills in Gmail's servers; the account signs in with an
+app password like any other. Atlas has no Google sign-in.
 
-```
-Send from you@icloud.com
-To: sam@example.com
-Subject: Re: Dinner Friday?
-
-Friday works - see you at 7. The menu is attached.
-
-Attached (1 file, 1.2 MB):
-  menu.pdf - PDF, 1.2 MB, sha256 3f9a1c0e - from the workspace: docs/menu.pdf
-
-(replying to Sam Lee, Thu 1 Oct 18:02)
-```
-
-Every recipient, the whole text and every file are on it - never a summary. A run with nobody
-to answer, such as a scheduled job, cannot send.
-
-**Replies don't quote the original.** Mail apps show the conversation above a reply anyway, and
-a quote is text Atlas didn't write going to someone you didn't see it go to.
-
-**Only you can use it.** The mail tools are offered in your own conversations and nowhere else.
-
-**An email is a stranger's words.** Atlas marks every message it reads as untrusted, and when
-your provider could not verify who a message is from, Atlas is told so before it reads the
-message. An email that tells Atlas to send something still ends at a card only you can answer.
-
-## Gmail and everyone else
-
-Gmail has labels; other providers have folders. Atlas speaks each one's way:
-
-| | Gmail | iCloud, Fastmail, Yahoo, others |
-|---|---|---|
-| Archive | takes the message out of the Inbox | moves it to the Archive folder |
-| Label | adds a label | moves it to that folder (`email_labels` lists them) |
-| Remove a label | removes it | not offered - a message is in one folder; move it back with *inbox* |
-| Sent copy | Gmail keeps it | Atlas files a copy in Sent after each send |
-| "Important" notices | Gmail's Important, Primary inbox | every new unread inbox message |
-
-## Links
-
-A web address written into an email arrives clickable, as it always has. To make words into a
-link - "the menu is **here**" - Atlas writes `[here](https://cafe.example/menu)`, and the email
-goes out with the words as a link. On the card you always see the real address beside the
-words:
-
-```
-The menu is here <https://cafe.example/menu>.
-```
-
-Refused before you're asked: a link to anything but a web or email address (`javascript:`,
-`data:`, `file:`), and a link whose words name one site while it goes to another -
-`paypal.com` that really goes to `paypal.evil.example` - because that is how phishing emails
-are made. Links inside a message you forward stay plain text.
-
-## Attachments
-
-A send or a draft can carry files from four places, and no others:
-
-- **Your workspace** - `docs/menu.pdf`, or a file an earlier `email_attachment` saved.
-- **A file you sent in this conversation** - "email Sam the lease I just sent you".
-- **A web address** - "email Sam the timetable at https://school.example/timetable.pdf". Atlas
-  downloads it when it shows you the card, under the same rules as `web_fetch` (never an
-  address on your own network unless you allowed it), and the card says where it came from.
-- **A forward's own attachments**, kept unless you say otherwise.
-
-Refused before you are ever asked, with the reason named: anything outside the workspace;
-Atlas's own `.atlas/` folder; hidden files and folders (`.env`, `.ssh/`, `.git/`); files named
-like keys (`*.pem`, `*.key`, `id_rsa`, `*.kdbx` ...); a text file with a password or API key in
-it; more than 10 files, or more than your provider takes in one message (25 MB; 20 MB on
-iCloud). What was hashed for the card is exactly what is sent - a file changed after you saw
-the card still goes as you saw it.
-
-Received attachments come to Atlas one at a time, when asked: a picture is shown to it
-directly, anything else is saved under `email-attachments/` in the workspace for it to read.
-
-## New mail
-
-When new mail lands in your inbox, a line arrives on the chat you last wrote to Atlas from:
-
-```
-📧 Sam Lee - Dinner Friday?
-📧 3 new emails: Sam Lee, Northside School, ANZ
-```
-
-On Gmail, only mail Gmail marks **Important** in your Primary inbox is said, by default. Other
-providers have no "important", so every new unread message in the inbox is said - the
-provider's spam filter has already kept junk out. Your provider decides, not Atlas; no model
-runs; Atlas opens, marks and answers nothing. It checks every two minutes. The first check
-after you set up an account only notes where the inbox is, so your backlog is not announced.
-
-`notify` in settings: `important` (the default), `primary` (everything in Gmail's Primary),
-`all` (every new unread inbox message, Gmail included), or `off`.
-
-## Settings
-
-All optional, under `plugins_settings.email`:
-
-| Key | Default | What |
-|---|---|---|
-| `address_env` | `EMAIL_ADDRESS` | The variable holding the first account's address. |
-| `password_env` | `EMAIL_APP_PASSWORD` | The variable holding its app password. |
-| `accounts` | `["personal"]` | Account labels (above). |
-| `servers` | none | Per label, a preset (`gmail`, `icloud`, `fastmail`, `yahoo`) or `{"imap": "host:port", "smtp": "host:port"}`. Needed only when the address's domain does not say. |
-| `names` | none | Per label, the display name on mail you send - `{"personal": "Sam Lee"}` sends as `Sam Lee <you@icloud.com>`. |
-| `logins` | the address | Per label, the login, for a server whose login is not your address. |
-| `folders` | found | Per label, which folder is which - `{"work": {"sent": "Sent Items", "archive": "Old"}}` - by the roles `drafts`, `sent`, `trash`, `junk` and `archive`. Not for Gmail. |
-| `notify` | `important` | `important`, `primary`, `all`, or `off`. |
-| `poll_minutes` | `2` | How often new mail is checked for. |
-| `max_results` | `20` | The most messages one search returns (at most 100). |
-| `max_chars` | `20000` | The most text one read returns. |
-| `attachment_max_mb` | `25` | The largest attachment Atlas fetches. |
-| `sends_per_hour` | `20` | Sends per account per hour before Atlas refuses. |
-| `attachments_max` | `10` | Files one message may carry. |
-
-### Your name, your login, your folders
-
-Mail goes from your bare address unless you give the account a name:
-
-```jsonc
-{ "plugins_settings": { "email": { "names": { "personal": "Sam Lee" } } } }
-```
-
-The card then says `Send from Sam Lee <you@icloud.com>`, and so does the mail.
-
-A server that logs you in as something other than your address - your own mail server, often -
-takes a login per account, beside its `servers` line. The app password stays in `.env`:
-
-```jsonc
+```json
 { "plugins_settings": { "email": {
-  "servers": { "work": { "imap": "mail.example.com:993", "smtp": "mail.example.com:465" } },
-  "logins": { "work": "sam" }
+    "accounts": {
+      "personal": { "provider": "gmail", "address": "me@gmail.com", "watch": ["INBOX"] }
+    }
 } } }
 ```
 
-Atlas finds Drafts, Sent, Trash, Junk and Archive by the markings your server gives them, then
-by the names providers use. Where it gets one wrong - or you file sent mail somewhere of your
-own - name it:
+Turn on 2-Step Verification for your Google account, make an app password at
+<https://myaccount.google.com/apppasswords>, and store it as
+`ATLAS_EMAIL_PASSWORD_PERSONAL`. IMAP must be on in Gmail's settings.
 
-```jsonc
-{ "plugins_settings": { "email": { "folders": { "work": { "sent": "Sent Items" } } } } }
+Outlook is not supported: Microsoft has turned off passwords over IMAP and SMTP for
+Outlook.com and most Microsoft 365 mailboxes, and Atlas has no Microsoft sign-in.
+
+## What the agent can do
+
+| Action | Does | Needs your OK |
+|---|---|---|
+| `accounts`, `folders`, `search`, `read`, `thread`, `attachment` | Read | no |
+| `draft` | Save a draft to Drafts | no |
+| `send`, `reply`, `forward` | Send mail. Only in a turn you started. | always |
+| `mark`, `move`, `archive`, `trash` | File mail | as your permission mode says |
+
+Every send is a card naming the account, every recipient and the subject, answered by you in
+every permission mode, `yolo` included. Changes are decided by your permission mode: `yolo`
+runs them, `ask` shows a card, `auto` hands them to the reviewer.
+Attachments are read through Atlas's media readers, so a PDF in mail is read the way a
+PDF in chat is. Nothing is saved to your workspace.
+
+## New mail
+
+With `on_new` set and a `watch` list, the plugin keeps a connection to each watched folder,
+using IMAP IDLE where the server has it and checking every `poll_seconds` where it does not.
+New unread mail is gathered for `debounce_seconds`, then the agent's main session gets one
+turn:
+
+```
+[woken by plugin email]
+New mail: personal INBOX 2 (uids 902, 903, uidvalidity 1714).
+The person asked: Summarise new mail and tell me if anything needs me today.
 ```
 
-A folder named there that your server does not have is said when it is needed - "folders.work.sent
-names 'Sent Items', which this account does not have" - and nothing is filed or moved somewhere
-else instead. Gmail's folders are Gmail's own, so a Gmail account with `folders` is refused.
+Turning it on announces nothing old: the first start records where your mailbox is. Mail
+that arrived while Atlas was off is one wake when it comes back. A wake the agent could
+not take (busy for five minutes) keeps its mail for the next one. `plugins_no_wake: ["email"]`
+stops the wakes without uninstalling anything.
 
-## What reaches your provider
+There are no rules on what a message says. Sorting by sender or subject is a stranger
+choosing what your agent does. Use your mail server's filters to sort mail into a folder,
+and watch that folder.
 
-An IMAP connection and, to send, an SMTP connection to your provider's servers - for iCloud,
-`imap.mail.me.com` and `smtp.mail.me.com`; for Gmail, `imap.gmail.com` and `smtp.gmail.com` -
-always over TLS, logged in with your app password. Nothing else of Atlas's. Nothing is ever
-deleted for good: Trash, which your provider empties on its own schedule (30 days on Gmail and
-iCloud), is as far as Atlas moves a message.
-
-What you ask Atlas about a message goes to the model you chose, as everything you ask it does.
-
-## Coming from `gmail`
-
-This plugin was called `gmail` until 1 October 2026. Everything you set up for it still works:
-
-- `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` (and their `_LABEL` versions) are still read when the
-  `EMAIL_` ones are not set. Rename them when convenient.
-- Settings under `plugins_settings.gmail` are read until there are some under
-  `plugins_settings.email`; `/plugins email` reminds you to rename the key.
-- If the old `gmail` plugin is still enabled, Atlas sets it aside in favour of this one. Remove
-  it with `/plugins remove gmail`.
-- The first new-mail check after the switch only notes where your inbox is, so nothing old is
-  announced twice.
-
-## Troubleshooting
-
-**"Email is not set up"** - the two lines in `.env` (above) are missing.
-
-**"Atlas does not know where ...'s mail is"** - your address is on your own domain; add a
-`servers` line (above).
-
-**"refused the app password"** - it was revoked, or your account's password changed, which
-revokes app passwords. Make a new one where the message says.
-
-**"... is Gmail's alone"** - that search operator only works on Gmail; the message lists what
-works on your account.
-
-**"that id is out of date - search again"** - your provider renumbered the folder since the
-search; search again for fresh ids.
-
-**"refused: ... contains what looks like a credential"** - the file has a key or password in it.
-Take it out, or send the file from your mail app yourself.
-
-**"the draft changed since it was shown"** - it was edited in your mail app after Atlas showed
-you the card. Ask again; the new card shows it as it is now.
-
-**"the send may not have gone"** - look in *Sent* before asking again: Atlas never retries a send,
-so that a message that did go is not sent twice.
-
-**"It went, but was not filed in Sent"** - the message was sent; only the copy in your Sent
-folder is missing.
+The last message number seen per folder is kept in `<workspace>/.atlas/email.json`:
+numbers and folder names, never mail.
